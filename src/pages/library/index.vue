@@ -1,92 +1,376 @@
 <template>
   <view :class="['page', `theme-${resolvedTheme}`]">
-    <view class="topbar">
-      <text class="topbar-title">渡己</text>
-      <view class="topbar-spacer" />
-      <view class="icon-btn" @click="reload">⟳</view>
-      <view class="icon-btn" @click="toSettings">⚙</view>
+    <!-- 顶栏：品牌左对齐；右侧依次 搜索 / 碎片箱 / 设置 -->
+    <view class="top-fixed">
+      <view class="safe-top" />
+      <GTopBar :elevated="scrolled">
+        <template #actions>
+          <view class="icon-btn" @click="toggleSearch">
+            <GIcon :name="searching ? 'close' : 'search'" :size="40" />
+          </view>
+          <view class="icon-btn" @click="toInbox">
+            <GIcon name="inbox" :size="40" />
+            <view v-if="pendingCount > 0" class="dot" />
+          </view>
+          <view class="icon-btn" @click="toSettings">
+            <GIcon name="settings" :size="40" />
+          </view>
+        </template>
+      </GTopBar>
     </view>
 
-    <view class="search-wrap">
-      <input
-        v-model="keyword"
-        class="field"
-        placeholder="搜索标题 / 摘要"
-        placeholder-class="ph"
-        confirm-type="search"
-      />
-    </view>
-
-    <!-- 剪贴板检测：App 从后台回来时，若检测到新链接/文本就问一句要不要收进碎片箱 -->
-    <view v-if="clipHint" class="clip card">
-      <view class="clip-main">
-        <text class="clip-title">检测到剪贴板内容</text>
-        <text class="clip-text">{{ clipHint }}</text>
+    <view class="body">
+      <!-- 搜索条：点顶栏放大镜才出现，不占常驻空间 -->
+      <view v-if="searching" class="search-row">
+        <input
+          v-model="keyword"
+          class="field"
+          placeholder="搜索标题 / 摘要"
+          placeholder-class="ph"
+          confirm-type="search"
+          :focus="searching"
+        />
       </view>
-      <view class="clip-actions">
-        <text class="clip-cancel" @click="dismissClip">忽略</text>
-        <text class="clip-do" @click="captureClip">收进碎片箱</text>
-      </view>
-    </view>
 
-    <view v-if="notes.loading && !notes.docs.length" class="hint muted">正在加载…</view>
-
-    <view v-else-if="notes.error" class="hint">
-      <text class="muted">{{ notes.error }}</text>
-      <button class="btn btn-ghost retry" @click="reload">重试</button>
-    </view>
-
-    <view v-else-if="!items.length" class="hint muted">
-      {{ keyword ? '没有匹配的内容' : '这里还没有文章' }}
-    </view>
-
-    <view v-else class="list">
-      <view v-for="item in items" :key="item.id" class="item" @click="open(item)">
-        <view class="row item-head">
-          <text class="item-title">{{ item.title }}</text>
-          <text v-if="item.pinned" class="pin">置顶</text>
+      <!-- 首页 = 网页默认页的引言 + 直接铺最新内容；栏目导览退到列表之后 -->
+      <view v-if="!searching && isHome" class="home">
+        <view class="home-hero">
+          <text class="home-tagline">{{ tagline }}</text>
+          <text class="home-desc">{{ description }}</text>
         </view>
-        <text v-if="item.excerpt" class="item-excerpt">{{ item.excerpt }}</text>
-        <view class="row item-meta">
-          <text class="muted">{{ item.folderLabel }}</text>
-          <text class="dot muted">·</text>
-          <text class="muted">{{ formatDate(item.updated_at) }}</text>
-          <text v-if="item.word_count" class="dot muted">·</text>
-          <text v-if="item.word_count" class="muted">{{ item.word_count }} 字</text>
+
+        <view v-if="pagedTotal" class="section-head">
+          <text class="section-title">最新</text>
+          <text class="section-more">{{ pagedTotal }}</text>
+        </view>
+        <GDocItem
+          v-for="item in pagedItems"
+          :key="item.id"
+          :doc="item"
+          show-column
+          @open="open"
+        />
+
+      </view>
+
+      <!-- 栏目头部：栏目色浸染的卡片 + 水印字母 + 介绍 -->
+      <view v-if="!searching && !isHome && activeCol" class="col-hero" :style="heroStyle">
+        <view class="col-head">
+          <view class="col-badge">
+            <text class="col-badge-letter">{{ activeCol.code }}</text>
+          </view>
+          <view class="col-titles">
+            <view class="col-name-row">
+              <text class="col-name">{{ activeCol.name }}</text>
+              <text class="col-pill">{{ pagedTotal }} 篇</text>
+            </view>
+            <text class="col-sub">
+              {{ activeCol.brief }}<template v-if="colUpdated"> · {{ colUpdated }}</template>
+            </text>
+          </view>
+        </view>
+        <text v-if="colDesc" class="col-desc">{{ colDesc }}</text>
+      </view>
+
+      <!-- 子类：栏目根下的一级子目录；只有 1 个及以下时不显示，避免独占一行 -->
+      <scroll-view
+        v-if="!searching && !isHome && subFolders.length > 1"
+        class="subs"
+        scroll-x
+        :show-scrollbar="false"
+      >
+        <view class="subs-inner">
+          <view
+            :class="['sub-chip', activeSub === '' ? 'sub-on' : '']"
+            :style="chipStyle"
+            @click="pickSub('')"
+          >
+            <text class="sub-text">全部</text>
+          </view>
+          <view
+            v-for="sub in subFolders"
+            :key="sub.path"
+            :class="['sub-chip', activeSub === sub.path ? 'sub-on' : '']"
+            :style="chipStyle"
+            @click="pickSub(sub.path)"
+          >
+            <text class="sub-text">{{ sub.name }}</text>
+          </view>
+        </view>
+      </scroll-view>
+
+      <!-- 剪贴板检测浮条：App 从后台回来时，若剪贴板是内容就问一句 -->
+      <view v-if="clipHint" class="clip">
+        <view class="clip-main">
+          <text class="clip-title">检测到剪贴板内容</text>
+          <text class="clip-text">{{ clipHint }}</text>
+        </view>
+        <view class="clip-actions">
+          <text class="clip-cancel" @click="dismissClip">忽略</text>
+          <text class="clip-do" @click="captureClip">收进碎片箱</text>
         </view>
       </view>
+
+      <!-- 列表 -->
+      <view v-if="notes.loading && !notes.docs.length" class="state">
+        <text class="state-text">正在加载…</text>
+      </view>
+
+      <view v-else-if="notes.error" class="state">
+        <text class="state-text">{{ notes.error }}</text>
+        <view class="btn btn-ghost retry" @click="reload">重试</view>
+      </view>
+
+      <view v-else-if="!items.length" class="state">
+        <text class="state-strong">{{ keyword ? '没有匹配的内容' : '这个栏目还是空的' }}</text>
+        <text class="state-text">{{ keyword ? '换个词试试，或清空搜索' : '投一条碎片，或从本机导入 .md' }}</text>
+      </view>
+
+      <view v-else-if="!isHome" class="list">
+        <GDocItem
+          v-for="item in pagedItems"
+          :key="item.id"
+          :doc="item"
+          :show-column="searching"
+          :strip="activeSubName"
+          @open="open"
+        />
+      </view>
+
+      <!-- 底部分页提示：本地分页没有网络等待，所以「加载更多」是可点的，
+           而不是无限滚动——用户知道自己滚到第几页了 -->
+      <view v-if="pagedTotal" class="pager-foot">
+        <text v-if="pagedHasMore" class="pager-more" @click="loadMore">
+          加载更多（{{ pagedShown }}/{{ pagedTotal }}）
+        </text>
+        <text v-else class="pager-end">没有更多了 · 共 {{ pagedTotal }} 篇</text>
+      </view>
+
+      <view class="tail" />
     </view>
 
-    <view class="tail" />
+    <!-- 投递：向下滚动时收起，给正文让位；一停就回弹 -->
+    <view :class="['fab', { 'fab-hidden': !fabVisible }]" @click="toInbox">
+      <GIcon name="plus" :size="44" :weight="2.4" />
+    </view>
 
-    <!-- 投递入口：手机上最高频的动作，放右下角一按可达 -->
-    <view class="fab" @click="toInbox">＋</view>
+    <GTabBar :active="activeTab" :disabled="!loggedIn" @select="switchColumn" />
   </view>
 </template>
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onPullDownRefresh, onShow } from '@dcloudio/uni-app'
+import { onPageScroll, onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
 import { useNotesStore, type FlatDoc } from '../../shared/store/notes'
 import { useAuthStore } from '../../shared/store/auth'
+import { useSiteStore } from '../../shared/store/site'
+import { usePagedList } from '../../shared/composables/usePagedList'
 import { hasSession } from '../../shared/auth/session'
 import { resolvedTheme } from '../../shared/theme'
 import { capabilities } from '../../shared/capabilities'
 import { readClipboard } from '../../shared/utils/file'
-import { capture } from '../../shared/api/inbox'
+import { capture, items as apiInboxItems } from '../../shared/api/inbox'
+import { COLUMNS, columnByCode, columnByPath, tint } from '../../shared/config/columns'
+import GIcon from '../../shared/components/GIcon.vue'
+import GTopBar from '../../shared/components/GTopBar.vue'
+import GDocItem from '../../shared/components/GDocItem.vue'
+import GTabBar, { type TabCode } from '../../shared/components/GTabBar.vue'
 
 const notes = useNotesStore()
 const auth = useAuthStore()
+const siteStore = useSiteStore()
+
 const keyword = ref('')
+const searching = ref(false)
+const scrolled = ref(false)
+const fabVisible = ref(false)
 const clipHint = ref('')
+const pendingCount = ref(0)
+const activeTab = ref<TabCode>('HOME')
+/** 子类（子目录）过滤；空串 = 全部 */
+const activeSub = ref('')
 let lastClip = ''
 
-/** 剪贴板只在 App 端主动读；H5 浏览器没有免授权读取，读了也是空 */
+const loggedIn = computed(() => hasSession())
+const tagline = computed(() => siteStore.info.tagline || '一念入笺，循智而溯，观而得悟，道以自寻，逸守一隅')
+const description = computed(() => siteStore.info.description || '')
+
+const isHome = computed(() => activeTab.value === 'HOME')
+const activeCol = computed(() => (isHome.value ? null : columnByCode(activeTab.value) || COLUMNS[0]))
+
+/* 抬头色：首页用强调蓝（跟顶栏一个语汇），栏目用栏目色 */
+const heroMain = computed(() =>
+  activeCol.value ? activeCol.value.main : resolvedTheme.value === 'dark' ? '#2997ff' : '#0066cc',
+)
+const heroInk = computed(() =>
+  activeCol.value ? activeCol.value.ink : resolvedTheme.value === 'dark' ? '#7cc0ff' : '#0058a3',
+)
+
+/** 当前栏目下的文档；搜索时跨栏目 */
+function byUpdatedDesc(a: FlatDoc, b: FlatDoc): number {
+  return (b.updated_at || '').localeCompare(a.updated_at || '')
+}
+
+/**
+ * 子类：栏目根下的一级子目录。
+ *
+ * 为什么只取一级：手机竖屏宽度 375pt，chip 条已经很挤；再往下钻一层，
+ * 用户会在「栏目 > 子类 > 子类的子类」里迷路，而实际层级只有 2 层。
+ * 更深的层级仍在列表元信息里以 `A / B` 的形式露出。
+ */
+const subFolders = computed<Array<{ path: string; name: string; count: number }>>(() => {
+  const col = activeCol.value
+  if (!col) return []
+  const root = notes.roots.find((r) => r.path === col.path)
+  if (!root) return []
+  const countDocs = (node: { docs: unknown[]; folders: any[] }): number =>
+    node.docs.length + node.folders.reduce((sum: number, f: any) => sum + countDocs(f), 0)
+
+  // 显示名与网页左栏同源：site.yaml 的 subs[].name 非空就用它，否则回退目录名
+  const siteCol = siteStore.info.columns?.find((c) => c.code === col.code)
+  const displayName = (path: string, fallback: string): string => {
+    const hit = siteCol?.subs?.find((x) => x.path === path)
+    return (hit?.name || '').trim() || fallback
+  }
+
+  return root.folders.map((f) => ({
+    path: f.path,
+    name: displayName(f.path, f.name),
+    count: countDocs(f),
+  }))
+})
+
+const columnDocs = computed<FlatDoc[]>(() => {
+  // 搜索与首页都是跨栏目；首页按更新时间倒序，等于「最近更新」
+  if (isHome.value || (searching.value && keyword.value.trim())) {
+    return [...notes.docs].sort(byUpdatedDesc)
+  }
+  let list = notes.docs.filter((d) => columnByPath(d.path)?.code === activeTab.value)
+  if (activeSub.value) {
+    list = list.filter((d) => d.path === activeSub.value || d.path.startsWith(`${activeSub.value}/`))
+  }
+  return list
+})
+
+const items = computed<FlatDoc[]>(() => {
+  const q = keyword.value.trim().toLowerCase()
+  const base = columnDocs.value
+  if (!q) return base
+  return base.filter(
+    (d) =>
+      d.title.toLowerCase().includes(q) ||
+      (d.excerpt || '').toLowerCase().includes(q) ||
+      d.path.toLowerCase().includes(q),
+  )
+})
+
+/** 首页直接铺全部内容，按更新时间倒序——打开就是「今天有什么新的」 */
+const latestDocs = computed<FlatDoc[]>(() => [...notes.docs].sort(byUpdatedDesc))
+
+/** 当前要渲染的完整集合：首页 / 搜索 / 栏目（含子类） */
+const feed = computed<FlatDoc[]>(() => (isHome.value ? latestDocs.value : items.value))
+
+/** 每页 15 条，触底加载 */
+const paged = usePagedList(feed, 15)
+const { items: pagedItems, total: pagedTotal, shown: pagedShown, hasMore: pagedHasMore, loadMore } = paged
+
+/** 栏目完整介绍（site.yaml 的 desc），头部用 */
+const colDesc = computed(() => {
+  const col = activeCol.value
+  if (!col) return ''
+  return siteStore.info.columns?.find((c) => c.code === col.code)?.desc || ''
+})
+
+/** 该栏目最近一次更新的相对时间，给头部做「活跃度」提示 */
+const colUpdated = computed(() => {
+  const col = activeCol.value
+  if (!col) return ''
+  const list = notes.docs.filter((d) => columnByPath(d.path)?.code === col.code)
+  if (!list.length) return ''
+  const latest = list.reduce((a, b) => ((b.updated_at || '') > (a.updated_at || '') ? b : a))
+  const raw = latest.updated_at || ''
+  const d = new Date(raw.replace(' ', 'T'))
+  if (Number.isNaN(d.getTime())) return ''
+  const diff = (Date.now() - d.getTime()) / 86400000
+  if (diff < 1) return '今天更新'
+  if (diff < 30) return `${Math.floor(diff)} 天前更新`
+  return `${d.getMonth() + 1} 个月前更新`
+})
+
+/** 已选子类的目录名，用于在列表元信息里去掉重复的那一层 */
+const activeSubName = computed(() => (activeSub.value ? activeSub.value.split('/').pop() || '' : ''))
+
+/** 栏目头卡配色：浅色模式淡，深色模式加重，否则近黑底上看不出浸染 */
+const heroStyle = computed(() => {
+  const dark = resolvedTheme.value === 'dark'
+  const base = heroMain.value
+  return {
+    '--c-soft': tint(base, dark ? 0.2 : 0.1),
+    '--c-line': tint(base, dark ? 0.34 : 0.18),
+    '--c-glow': tint(base, dark ? 0.34 : 0.26),
+    '--c-ink': heroInk.value,
+  } as Record<string, string>
+})
+
+/** 子类 chip 的配色跟随当前栏目 */
+const chipStyle = computed(() => ({
+  '--c-soft': tint(heroMain.value, 0.12),
+  '--c-line': tint(heroMain.value, 0.3),
+  '--c-ink': heroInk.value,
+}))
+
+function switchColumn(code: TabCode): void {
+  activeTab.value = code
+  activeSub.value = ''
+  keyword.value = ''
+  searching.value = false
+  paged.reset()
+  uni.setStorageSync('garden.column', code)
+}
+
+function toggleSearch(): void {
+  searching.value = !searching.value
+  if (!searching.value) keyword.value = ''
+  paged.reset()
+}
+
+function pickSub(path: string): void {
+  activeSub.value = path
+  paged.reset()
+}
+
+function open(item: FlatDoc): void {
+  uni.navigateTo({ url: `/pages/doc/index?id=${encodeURIComponent(item.id)}` })
+}
+
+function toSettings(): void {
+  uni.navigateTo({ url: '/pages/settings/index' })
+}
+
+function toInbox(): void {
+  uni.navigateTo({ url: '/pages/inbox/index' })
+}
+
+function reload(): void {
+  notes.load(true)
+  void loadPending()
+}
+
+async function loadPending(): Promise<void> {
+  if (!loggedIn.value) return
+  try {
+    const res = await apiInboxItems('captured', 1)
+    pendingCount.value = res.total || 0
+  } catch {
+    /* 角标失败不打扰用户 */
+  }
+}
+
+/** 剪贴板只在 App 端读；H5 浏览器没有免授权读取 */
 async function checkClipboard(): Promise<void> {
-  if (!capabilities.canCapture || !hasSession()) return
+  if (!capabilities.canCapture || !loggedIn.value) return
   const text = (await readClipboard()).trim()
   if (!text || text === lastClip) return
-  // 只对「像链接 / 像一段正文」的内容提示，避免复制密码、验证码也弹
   const looksUseful =
     /^https?:\/\/\S{6,}$/i.test(text) || (text.length >= 12 && /\s/.test(text) && text.length < 2000)
   if (!looksUseful) return
@@ -101,6 +385,7 @@ async function captureClip(): Promise<void> {
   try {
     await capture({ content: text, source_type: /^https?:\/\//i.test(text) ? 'url' : 'text' })
     uni.showToast({ title: '已收进碎片箱', icon: 'none' })
+    void loadPending()
   } catch (err: any) {
     uni.showToast({ title: err?.reason || '投递失败', icon: 'none' })
   }
@@ -110,205 +395,280 @@ function dismissClip(): void {
   clipHint.value = ''
 }
 
-function toInbox(): void {
-  uni.navigateTo({ url: '/pages/inbox/index' })
-}
-
-const items = computed<FlatDoc[]>(() => {
-  const kw = keyword.value.trim().toLowerCase()
-  if (!kw) return notes.docs
-  return notes.docs.filter(
-    (d) =>
-      d.title.toLowerCase().includes(kw) ||
-      (d.excerpt || '').toLowerCase().includes(kw) ||
-      d.path.toLowerCase().includes(kw),
-  )
+onPageScroll((e) => {
+  const top = e.scrollTop
+  scrolled.value = top > 4
+  // 首屏不显示 FAB：它会压在第一条标题/摘要上（截图里很明显）。
+  // 滚过一屏内容后再出现，此时用户已经在浏览，悬浮按钮不再遮挡「第一眼」。
+  fabVisible.value = top > 160
 })
 
-function formatDate(raw: string): string {
-  if (!raw) return ''
-  const d = new Date(raw.replace(' ', 'T'))
-  if (Number.isNaN(d.getTime())) return raw.slice(0, 10)
-  const now = new Date()
-  const sameYear = d.getFullYear() === now.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return sameYear ? `${mm}-${dd}` : `${d.getFullYear()}-${mm}-${dd}`
-}
-
-async function ensureLogin(): Promise<boolean> {
-  if (hasSession()) return true
-  uni.reLaunch({ url: '/pages/login/index' })
-  return false
-}
-
-async function load(force = false): Promise<void> {
-  if (!(await ensureLogin())) return
-  try {
-    await notes.load(force)
-  } catch (err: any) {
-    if (auth.handleFatal(err)) return
-    // 游客可读接口出错时保持静默，页面已有错误态
-  }
-}
-
-function reload(): void {
-  load(true)
-}
-
-function open(doc: FlatDoc): void {
-  uni.navigateTo({ url: `/pages/doc/index?id=${encodeURIComponent(doc.id)}` })
-}
-
-function toSettings(): void {
-  uni.navigateTo({ url: '/pages/settings/index' })
-}
-
 onShow(() => {
-  load()
-  checkClipboard()
+  // 库页是应用入口页（pages.json 第一项），未登录必须在这里挡一次，
+  // 否则会先渲染空列表再去打接口，出现「request:fail」的误导性报错
+  if (!hasSession()) {
+    uni.reLaunch({ url: '/pages/login/index' })
+    return
+  }
+  const saved = uni.getStorageSync('garden.column')
+  if (saved === 'HOME' || (saved && columnByCode(saved))) activeTab.value = saved as TabCode
+  notes.load()
+  void siteStore.load()
+  void loadPending()
+  void checkClipboard()
+})
+
+onReachBottom(() => {
+  loadMore()
 })
 
 onPullDownRefresh(async () => {
-  await load(true)
+  await notes.load(true)
+  await loadPending()
   uni.stopPullDownRefresh()
 })
 </script>
 
 <style scoped>
-.search-wrap {
-  padding: 4px 16px 12px;
+.top-fixed {
+  position: sticky;
+  top: 0;
+  z-index: 80;
+  background-color: var(--bg);
+}
+
+.safe-top {
+  height: env(safe-area-inset-top);
+}
+
+.body {
+  padding: 0 var(--page-gutter);
+}
+
+.search-row {
+  padding: 8rpx 0 16rpx;
 }
 
 .ph {
+  color: var(--placeholder);
+}
+
+/* ---------------- 栏目头部 ---------------- */
+.col-hero {
+  position: relative;
+  overflow: hidden;
+  margin: 8rpx 0 24rpx;
+  padding: 30rpx 32rpx 32rpx;
+  border-radius: var(--r-lg);
+  background-color: var(--c-soft);
+  border: 1rpx solid var(--c-line);
+}
+
+/* 超大字母水印：给栏目一个视觉指纹，不抢正文 */
+/* 右上角柔光斑：替代原来的字母水印。
+   字母水印的问题：L / I 被裁切后只剩一条竖线，形态依赖字形，无法统一。
+   光斑与字形无关，且能和网页入口页的 blob 呼应。 */
+.col-hero::after {
+  content: '';
+  position: absolute;
+  right: -110rpx;
+  top: -150rpx;
+  width: 340rpx;
+  height: 340rpx;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--c-glow) 0%, transparent 68%);
+  pointer-events: none;
+}
+
+.col-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.col-badge {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 26rpx;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--surface);
+  border: 1rpx solid var(--c-line);
+}
+
+.col-badge-letter {
+  font-size: 40rpx;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--c-ink);
+}
+
+.col-titles {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.col-name-row {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+
+.col-name {
+  font-size: 52rpx;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -1.2rpx;
+  color: var(--text);
+}
+
+.col-pill {
+  flex: 0 0 auto;
+  font-size: 24rpx;
+  font-weight: 600;
+  color: var(--c-ink);
+  background-color: var(--surface);
+  padding: 4rpx 16rpx;
+  border-radius: 9999rpx;
+}
+
+.col-sub {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 26rpx;
   color: var(--muted);
 }
 
-.list {
-  padding: 0 16px;
+.col-desc {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin-top: 22rpx;
+  font-size: 26rpx;
+  line-height: 1.7;
+  color: var(--text-2);
 }
 
-.item {
-  padding: 14px 16px;
-  margin-bottom: 10px;
-  border-radius: 14px;
-  background-color: var(--surface);
-  border: 1px solid var(--line);
+/* ---------------- 子类 chip 条 ---------------- */
+.subs {
+  width: 100%;
+  white-space: nowrap;
+  padding: 4rpx 0 20rpx;
 }
 
-.item:active {
+.subs-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.sub-chip {
+  flex: 0 0 auto;
+  height: 64rpx;
+  padding: 0 26rpx;
+  border-radius: 9999rpx;
+  border: 1rpx solid transparent;
+  background-color: var(--surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color 180ms ease,
+    border-color 180ms ease,
+    color 180ms ease;
+}
+
+.sub-chip:active {
+  opacity: 0.75;
+}
+
+.sub-text {
+  font-size: 26rpx;
+  font-weight: 500;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.sub-on {
+  background-color: var(--c-soft);
+  border-color: var(--c-line);
+}
+
+.sub-on .sub-text {
+  color: var(--c-ink);
+  font-weight: 600;
+}
+
+/* ---------------- 分页脚 ---------------- */
+.pager-foot {
+  padding: 40rpx 0 8rpx;
+  display: flex;
+  justify-content: center;
+}
+
+.pager-more {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--accent);
+  padding: 16rpx 40rpx;
+  border-radius: 9999rpx;
   background-color: var(--surface-2);
 }
 
-.item-head {
-  justify-content: space-between;
+.pager-more:active {
+  background-color: var(--bg-hover);
 }
 
-.item-title {
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.2px;
-  color: var(--text);
-  flex: 1;
+.pager-end {
+  font-size: var(--fs-xs);
+  color: var(--faint);
 }
 
-.pin {
-  font-size: 11px;
-  color: var(--accent);
-  background-color: var(--accent-soft);
-  padding: 2px 6px;
-  border-radius: 6px;
+/* ---------------- 首页（对应网页默认页） ---------------- */
+.home {
+  padding-top: 8rpx;
 }
 
-.item-excerpt {
+.home-tagline {
   display: block;
-  margin-top: 6px;
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 40rpx;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: -0.6rpx;
+  color: var(--text);
+}
+
+.home-desc {
+  display: block;
+  margin-top: 20rpx;
+  font-size: var(--fs-sm);
+  line-height: 1.7;
   color: var(--muted);
 }
 
-.item-meta {
-  margin-top: 10px;
-  font-size: 12px;
-  gap: 6px;
-  flex-wrap: wrap;
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 44rpx 0 4rpx;
 }
 
-.dot {
-  font-size: 12px;
+.section-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--text);
 }
 
-.hint {
-  padding: 40px 22px;
-  font-size: 14px;
-  text-align: center;
-}
-
-.retry {
-  margin-top: 16px;
+.section-more {
+  font-size: var(--fs-xs);
+  color: var(--faint);
 }
 
 .tail {
-  height: calc(env(safe-area-inset-bottom) + 88px);
-}
-
-.clip {
-  margin: 0 16px 12px;
-  padding: 12px 14px;
-}
-
-.clip-main {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.clip-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.clip-text {
-  font-size: 12px;
-  color: var(--muted);
-  word-break: break-all;
-}
-
-.clip-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 16px;
-  margin-top: 10px;
-  font-size: 13px;
-}
-
-.clip-cancel {
-  color: var(--muted);
-}
-
-.clip-do {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.fab {
-  position: fixed;
-  right: 20px;
-  bottom: calc(env(safe-area-inset-bottom) + 24px);
-  width: 56px;
-  height: 56px;
-  border-radius: 28px;
-  background-color: var(--accent);
-  color: #fff;
-  font-size: 28px;
-  line-height: 54px;
-  text-align: center;
-  box-shadow: 0 8px 22px rgba(0, 102, 204, 0.35);
-}
-
-.fab:active {
-  transform: scale(0.94);
+  /* TabBar（--tabbar-h）+ FAB 104 + 留白，否则最后一条会被悬浮按钮压住 */
+  height: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 200rpx);
 }
 </style>

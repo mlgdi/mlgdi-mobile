@@ -36,8 +36,12 @@ export function capture(payload: CapturePayload): Promise<{ item?: InboxItem; du
   })
 }
 
-export function items(status?: InboxStatus, limit = 50): Promise<{ items: InboxItem[]; total: number }> {
-  return request({ path: '/api/v1/inbox/items', query: { status, limit } })
+export function items(
+  status?: InboxStatus,
+  limit = 15,
+  offset = 0,
+): Promise<{ items: InboxItem[]; total: number }> {
+  return request({ path: '/api/v1/inbox/items', query: { status, limit, offset } })
 }
 
 export function removeItem(id: string): Promise<{ ok: boolean }> {

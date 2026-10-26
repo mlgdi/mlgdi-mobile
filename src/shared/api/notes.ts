@@ -27,9 +27,39 @@ export interface TreeNode {
   docs: DocBrief[]
 }
 
+/**
+ * 反链。
+ *
+ * 注意结构是 `{ incoming, outgoing }` 两个方向，**不是数组**。
+ * 早期把它当成数组，`backlinks.length` 恰好等于 2（两个 key），
+ * 于是每篇文章都显示「2 条反链」——数据一直错，界面上看不出来。
+ */
+export interface IncomingLink {
+  doc_id: string
+  title: string
+  path: string
+  /** 引用处的原文片段，用于在反链列表里展示上下文 */
+  context?: string
+  link_type?: string
+}
+
+export interface OutgoingLink {
+  target: string
+  link_type: string
+  resolved: boolean
+  doc_id?: string | null
+  title?: string
+  path?: string
+}
+
+export interface DocLinks {
+  incoming: IncomingLink[]
+  outgoing: OutgoingLink[]
+}
+
 export interface DocDetail extends DocBrief {
   body: string
-  backlinks: Array<{ id: string; title: string; path: string }>
+  backlinks: DocLinks
   frontmatter?: Record<string, unknown>
 }
 

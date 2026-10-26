@@ -84,6 +84,14 @@
       </view>
     </view>
 
+    <!-- 分页脚 -->
+    <view v-if="list.length" class="pager-foot">
+      <text v-if="hasMore" class="pager-more" @click="loadMore">
+        {{ loadingMore ? '加载中…' : `加载更多（${list.length}/${total}）` }}
+      </text>
+      <text v-else class="pager-end">没有更多了 · 共 {{ total }} 条</text>
+    </view>
+
     <!-- 批量条 -->
     <view v-if="selected.length" class="batch">
       <text class="batch-info">已选 {{ selected.length }} 条</text>
@@ -100,7 +108,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onReachBottom, onShow } from '@dcloudio/uni-app'
 import {
   capture,
   dispatch,
@@ -119,6 +127,10 @@ const loading = ref(false)
 const sending = ref(false)
 const working = ref(false)
 const activeStatus = ref<InboxStatus | ''>('captured')
+/** 分页：接口支持 limit/offset，这里 15 条一页，触底追加 */
+const PAGE_SIZE = 15
+const total = ref(0)
+const loadingMore = ref(false)
 const selected = ref<string[]>([])
 
 const filters: Array<{ value: InboxStatus | ''; label: string }> = [
@@ -151,17 +163,30 @@ function back(): void {
   else uni.reLaunch({ url: '/pages/library/index' })
 }
 
-async function load(): Promise<void> {
-  loading.value = true
+async function load(append = false): Promise<void> {
+  if (append) loadingMore.value = true
+  else loading.value = true
   try {
-    const res = await apiItems(activeStatus.value || undefined, 100)
-    list.value = res.items || []
+    const offset = append ? list.value.length : 0
+    const res = await apiItems(activeStatus.value || undefined, PAGE_SIZE, offset)
+    const incoming = res.items || []
+    list.value = append ? [...list.value, ...incoming] : incoming
+    total.value = res.total || list.value.length
+    // 追加后仍要保持选中项与列表一致（被删掉的不再保留）
     selected.value = selected.value.filter((id) => list.value.some((i) => i.id === id))
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || '加载失败', icon: 'none' })
+    if (!append) uni.showToast({ title: err?.reason || '加载失败', icon: 'none' })
   } finally {
     loading.value = false
+    loadingMore.value = false
   }
+}
+
+const hasMore = computed(() => list.value.length < total.value)
+
+function loadMore(): void {
+  if (loadingMore.value || !hasMore.value) return
+  void load(true)
 }
 
 function reload(): void {
@@ -284,12 +309,36 @@ function openImport(): void {
   uni.navigateTo({ url: '/pages/import/index' })
 }
 
+onReachBottom(() => {
+  loadMore()
+})
+
 onShow(() => {
   load()
 })
 </script>
 
 <style scoped>
+.pager-foot {
+  display: flex;
+  justify-content: center;
+  padding: 28rpx 0 8rpx;
+}
+
+.pager-more {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 14rpx 36rpx;
+  border-radius: 9999rpx;
+  background-color: var(--surface-2);
+}
+
+.pager-end {
+  font-size: 24rpx;
+  color: var(--faint);
+}
+
 .compose {
   margin: 4px 16px 0;
   padding: 12px 14px 10px;

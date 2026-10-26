@@ -161,13 +161,23 @@ try {
   await shot(page, '03-library')
 
   // ---- 3. 阅读 ----
-  const firstItem = page.locator('.item').first()
+  const firstItem = page.locator('.doc').first()
   const hasItem = (await firstItem.count()) > 0
   log('库列表有内容', hasItem)
   if (hasItem) {
     await firstItem.click()
     await page.waitForTimeout(2200)
-    log('文章页渲染', await page.locator('.title').first().isVisible())
+    log('文章页渲染', await page.locator('.a-title').first().isVisible())
+    // 正文排版与目录：v-html 路径一旦被改回富文本组件，这两条会先红
+    log('正文有标题层级', (await page.locator('.md-inner h1, .md-inner h2, .md-inner h3').count()) > 0)
+    if ((await page.locator('.gtop .icon-btn').count()) > 0) {
+      await page.locator('.gtop .icon-btn').first().click()
+      await page.waitForTimeout(500)
+      const sheet = await page.locator('.sheet.is-open').count()
+      log('目录抽屉可开', sheet > 0)
+      await page.locator('.mask').click()
+      await page.waitForTimeout(400)
+    }
     await shot(page, '04-doc')
   }
 
