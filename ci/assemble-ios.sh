@@ -138,8 +138,9 @@ echo "scheme: $SCHEME_DIR/HBuilder.xcscheme"
 log "7/8 pod install"
 cd "$HELLO"
 if [ -f Podfile ]; then
-  # Podfile 里 subspec 列表决定了集成本工程用到的模块（CameraGallery/File/XmlHttpRequest 等）
-  pod install --repo-update || pod install
+  # Podfile 的 subspec 列表决定本工程集成的模块（CameraGallery / File / XmlHttpRequest…）。
+  # 先直连 CDN 装（快），失败再拉全量 spec 重试（慢但稳）。
+  pod install || pod install --repo-update
 else
   dump_and_die "没有 Podfile：这个 SDK 版本不是 Pod 方式集成，脚本需要改"
 fi
