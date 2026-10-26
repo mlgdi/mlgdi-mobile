@@ -1,10 +1,6 @@
 <template>
   <view :class="['page', `theme-${resolvedTheme}`]">
-    <view class="topbar">
-      <view class="icon-btn" @click="back">‹</view>
-      <text class="topbar-title">服务器</text>
-      <view class="topbar-spacer" />
-    </view>
+    <GTopBar back title="服务器" :elevated="true" @back="back" />
 
     <view class="section">
       <text class="section-label muted">地址</text>
@@ -53,6 +49,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import GTopBar from '../../shared/components/GTopBar.vue'
 import { onLoad } from '@dcloudio/uni-app'
 import {
   DEFAULT_BASE_URL,

@@ -1133,6 +1133,7 @@ onUnload(() => {
 }
 
 .sheet-body {
+  box-sizing: border-box;
   flex: 1 1 auto;
   max-height: 52vh;
   padding: 0 var(--page-gutter);

@@ -33,7 +33,7 @@
       <view class="server-row" @click="toServer">
         <text class="muted">服务器</text>
         <text class="server-val">{{ baseUrl }}</text>
-        <text class="chev">›</text>
+        <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
       </view>
 
       <text class="tip muted">首次登录会把这台设备登记到账号下，之后令牌长期有效；换机或泄漏可在设置里吊销。</text>
@@ -43,6 +43,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import GIcon from '../../shared/components/GIcon.vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useAuthStore } from '../../shared/store/auth'
 import { getBaseUrl } from '../../shared/config/server'
@@ -138,8 +139,10 @@ async function submit(): Promise<void> {
 }
 
 .chev {
-  color: var(--muted);
-  font-size: 18px;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--faint);
 }
 
 .tip {

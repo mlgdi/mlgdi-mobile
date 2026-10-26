@@ -73,6 +73,32 @@ if ((await page.locator('.doc').count()) > 0) {
   }
 }
 
+// 编辑页：工具栏 / 预览 / AI
+await page.evaluate(() => { location.hash = '#/pages/edit/index?id=doc-fc536bc2-7304-486f-a9aa-aedd7dfe8190' })
+await page.waitForTimeout(2400)
+await page.screenshot({ path: 'shots/35-editor.png' })
+await page.locator('.gtop .icon-btn').nth(0).click()
+await page.waitForTimeout(800)
+await page.screenshot({ path: 'shots/36-editor-preview.png' })
+await page.locator('.gtop .icon-btn').nth(0).click()
+await page.waitForTimeout(400)
+await page.locator('.tb-ai').click()
+await page.waitForTimeout(1600)
+await page.screenshot({ path: 'shots/37-editor-ai.png' })
+await page.locator('.mask').click()
+await page.waitForTimeout(400)
+
+// 新建面板
+await page.goto(`${APP}/#/pages/library/index`, { waitUntil: 'networkidle' })
+await page.waitForTimeout(1800)
+if ((await page.locator('.icon-new').count()) > 0) {
+  await page.locator('.icon-new').click()
+  await page.waitForTimeout(700)
+  await page.screenshot({ path: 'shots/31-new-sheet.png' })
+  await page.locator('.mask').click()
+  await page.waitForTimeout(300)
+}
+
 // 深色
 await page.goto(`${APP}/#/pages/settings/index`, { waitUntil: 'networkidle' })
 await page.waitForTimeout(900)

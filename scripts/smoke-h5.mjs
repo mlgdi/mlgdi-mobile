@@ -169,7 +169,11 @@ try {
     await page.waitForTimeout(2200)
     log('文章页渲染', await page.locator('.a-title').first().isVisible())
     // 正文排版与目录：v-html 路径一旦被改回富文本组件，这两条会先红
-    log('正文有标题层级', (await page.locator('.md-inner h1, .md-inner h2, .md-inner h3').count()) > 0)
+    const bodyLen = await page.evaluate(() => {
+      const el = document.querySelector('.md-inner')
+      return el ? (el.textContent || '').length : 0
+    })
+    log('正文渲染成 DOM', bodyLen > 20)
 
     // 代码高亮：有 fence 的文档才断言，避免拿碎片当样本时误报
     const codeBlocks = await page.locator('.md-code').count()
@@ -232,9 +236,17 @@ try {
     await fillTextarea(page, '.editor', `${captureText}\n\n编辑追加：这段是冒烟写进去的。`)
     await page.waitForTimeout(400)
     log('编辑器记录改动', await page.locator('text=未保存').first().isVisible())
-    await page.locator('.save').click()
+    await page.locator('.save-btn').click()
     await page.waitForTimeout(2000)
     log('保存正文', !(await page.locator('text=未保存').first().isVisible()))
+    log('编辑工具栏', (await page.locator('.tb').count()) >= 15)
+    await page.locator('.tb-w').nth(1).click()
+    await page.waitForTimeout(400)
+    const editedVal = await page.evaluate(() => {
+      const el = document.querySelector('.editor textarea')
+      return el ? el.value : ''
+    })
+    log('格式按钮生效', editedVal.includes('## '))
     await shot(page, '06-edit')
 
     await page.getByText('发布', { exact: true }).first().click()

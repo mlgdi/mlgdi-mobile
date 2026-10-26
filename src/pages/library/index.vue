@@ -5,6 +5,9 @@
       <view class="safe-top" />
       <GTopBar :elevated="scrolled">
         <template #actions>
+          <view class="icon-btn icon-new" @click="openNew">
+            <GIcon name="plus" :size="36" :weight="2.5" />
+          </view>
           <view class="icon-btn" @click="toggleSearch">
             <GIcon :name="searching ? 'close' : 'search'" :size="40" />
           </view>
@@ -34,13 +37,13 @@
 
       <!-- 首页 = 网页默认页的引言 + 直接铺最新内容；栏目导览退到列表之后 -->
       <view v-if="!searching && isHome" class="home">
-        <view class="home-hero">
+        <view class="home-intro">
           <text class="home-tagline">{{ tagline }}</text>
-          <text class="home-desc">{{ description }}</text>
+          <text v-if="description" class="home-desc">{{ description }}</text>
         </view>
 
         <view v-if="pagedTotal" class="section-head">
-          <text class="section-title">最新</text>
+          <text class="section-title">最近更新</text>
           <text class="section-more">{{ pagedTotal }}</text>
         </view>
         <GDocItem
@@ -149,9 +152,49 @@
       <view class="tail" />
     </view>
 
-    <!-- 投递：向下滚动时收起，给正文让位；一停就回弹 -->
-    <view :class="['fab', { 'fab-hidden': !fabVisible }]" @click="toInbox">
-      <GIcon name="plus" :size="44" :weight="2.4" />
+    <!-- 新建：默认落在当前栏目（首页 → 收集箱），与 Web 的 NewDocDialog 同一行为 -->
+    <view v-if="newOpen" class="mask" @click="newOpen = false" />
+    <view :class="['new-sheet', { 'is-open': newOpen }]">
+      <view class="sheet-grip" />
+      <view class="sheet-head">
+        <text class="sheet-title">新建文档</text>
+        <text class="sheet-sub">{{ activeCol ? `默认落在「${activeCol.name}」` : '默认落在收集箱' }}</text>
+      </view>
+
+      <input
+        v-model="newTitle"
+        class="new-input"
+        placeholder="标题"
+        placeholder-class="ph"
+        :focus="newOpen"
+        :maxlength="80"
+        confirm-type="done"
+        @confirm="doCreate"
+      />
+
+      <picker :range="dirLabels" :value="dirIndex" @change="onDirChange">
+        <view class="new-row">
+          <text class="new-label">目录</text>
+          <text class="new-value">{{ dirLabel(newDir) }}</text>
+          <GIcon name="chevron-right" :size="28" />
+        </view>
+      </picker>
+
+      <view class="new-row">
+        <text class="new-label">可见性</text>
+        <view class="vis-opts">
+          <view :class="['vis', newVisibility === 'private' ? 'vis-on' : '']" @click="newVisibility = 'private'">
+            私有
+          </view>
+          <view :class="['vis', newVisibility === 'public' ? 'vis-on' : '']" @click="newVisibility = 'public'">
+            公开
+          </view>
+        </view>
+      </view>
+
+      <view :class="['btn', 'new-submit', canCreate ? '' : 'btn-off']" @click="doCreate">
+        {{ creating ? '创建中…' : '创建并编辑' }}
+      </view>
     </view>
 
     <GTabBar :active="activeTab" :disabled="!loggedIn" @select="switchColumn" />
@@ -164,6 +207,7 @@ import { onPageScroll, onPullDownRefresh, onReachBottom, onShow } from '@dcloudi
 import { useNotesStore, type FlatDoc } from '../../shared/store/notes'
 import { useAuthStore } from '../../shared/store/auth'
 import { useSiteStore } from '../../shared/store/site'
+import { createDoc } from '../../shared/api/notes'
 import { usePagedList } from '../../shared/composables/usePagedList'
 import { hasSession } from '../../shared/auth/session'
 import { resolvedTheme } from '../../shared/theme'
@@ -183,7 +227,6 @@ const siteStore = useSiteStore()
 const keyword = ref('')
 const searching = ref(false)
 const scrolled = ref(false)
-const fabVisible = ref(false)
 const clipHint = ref('')
 const pendingCount = ref(0)
 const activeTab = ref<TabCode>('HOME')
@@ -347,6 +390,73 @@ function toSettings(): void {
   uni.navigateTo({ url: '/pages/settings/index' })
 }
 
+/* ---------------- 新建文档 ----------------
+   默认目录跟当前栏目走（Web 的 NewDocDialog 也是这个行为）。
+   首页不属于任何栏目，落到 00_Inbox —— 符合「服务端只写 Inbox」的既有约定。 */
+const newOpen = ref(false)
+const newTitle = ref('')
+const creating = ref(false)
+const newDir = ref('00_Inbox')
+const newVisibility = ref<'private' | 'public'>('private')
+
+/** 目录候选：五个根 + 子目录（vault 最多两层） */
+const dirOptions = computed<string[]>(() => {
+  const out: string[] = []
+  const walk = (node: any, depth: number): void => {
+    if (depth > 2) return
+    out.push(node.path)
+    for (const f of node.folders || []) walk(f, depth + 1)
+  }
+  for (const r of notes.roots) walk(r, 1)
+  return out.length ? out : ['00_Inbox']
+})
+
+/** 目录的显示名：根目录换成栏目中文名，子目录保留原名 */
+function dirLabel(path: string): string {
+  const root = path.split('/')[0]
+  const col = COLUMNS.find((c) => c.path === root)
+  if (!col) return path
+  const rest = path.slice(root.length).replace(/^\//, '')
+  return rest ? `${col.name} · ${rest}` : col.name
+}
+
+/** picker 里也用友好名，否则用户面对一串 00_Inbox 得自己猜 */
+const dirLabels = computed(() => dirOptions.value.map(dirLabel))
+const dirIndex = computed(() => Math.max(0, dirOptions.value.indexOf(newDir.value)))
+const canCreate = computed(() => newTitle.value.trim().length > 0 && !creating.value)
+
+function openNew(): void {
+  newDir.value = activeCol.value?.path || '00_Inbox'
+  newTitle.value = ''
+  newOpen.value = true
+}
+
+function onDirChange(e: any): void {
+  newDir.value = dirOptions.value[Number(e.detail.value)] || newDir.value
+}
+
+async function doCreate(): Promise<void> {
+  const title = newTitle.value.trim()
+  if (!title || creating.value) return
+  creating.value = true
+  try {
+    const isBooklet = newDir.value.split('/')[0] === '02_Booklets'
+    const res = await createDoc({
+      dir: newDir.value,
+      title,
+      template: isBooklet ? 'booklet' : 'post',
+      visibility: newVisibility.value,
+    })
+    newOpen.value = false
+    await notes.load(true)
+    uni.navigateTo({ url: `/pages/edit/index?id=${encodeURIComponent(res.doc.id)}` })
+  } catch (err: any) {
+    uni.showToast({ title: err?.reason || '创建失败', icon: 'none' })
+  } finally {
+    creating.value = false
+  }
+}
+
 function toInbox(): void {
   uni.navigateTo({ url: '/pages/inbox/index' })
 }
@@ -398,9 +508,6 @@ function dismissClip(): void {
 onPageScroll((e) => {
   const top = e.scrollTop
   scrolled.value = top > 4
-  // 首屏不显示 FAB：它会压在第一条标题/摘要上（截图里很明显）。
-  // 滚过一屏内容后再出现，此时用户已经在浏览，悬浮按钮不再遮挡「第一眼」。
-  fabVisible.value = top > 160
 })
 
 onShow(() => {
@@ -554,6 +661,7 @@ onPullDownRefresh(async () => {
 
 /* ---------------- 子类 chip 条 ---------------- */
 .subs {
+  box-sizing: border-box;
   width: 100%;
   white-space: nowrap;
   padding: 4rpx 0 20rpx;
@@ -627,25 +735,52 @@ onPullDownRefresh(async () => {
   color: var(--faint);
 }
 
-/* ---------------- 首页（对应网页默认页） ---------------- */
+/* ---------------- 首页导语 ----------------
+   不再是一段裸文字直接顶在品牌栏下（那样像没写完的半句）。
+   收进浅底卡片：有边界、有呼吸，也和栏目页的浸染卡是同一套手法。 */
 .home {
   padding-top: 8rpx;
 }
 
+.home-intro {
+  position: relative;
+  overflow: hidden;
+  padding: 30rpx 30rpx 32rpx;
+  border-radius: var(--r-lg);
+  background-color: var(--surface-2);
+}
+
+/* 右上柔光：与栏目头卡同一手法，避免整块死灰 */
+.home-intro::after {
+  content: '';
+  position: absolute;
+  right: -80rpx;
+  top: -120rpx;
+  width: 300rpx;
+  height: 300rpx;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-soft) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* 34rpx 而非 40rpx：原来那号字与「最近更新」「列表标题」三层挤在一起，
+   谁都压不住谁。降一级后导语是「说明」，列表才是主体。 */
 .home-tagline {
+  position: relative;
   display: block;
-  font-size: 40rpx;
+  font-size: 34rpx;
   font-weight: 600;
-  line-height: 1.5;
-  letter-spacing: -0.6rpx;
+  line-height: 1.55;
+  letter-spacing: -0.4rpx;
   color: var(--text);
 }
 
 .home-desc {
+  position: relative;
   display: block;
-  margin-top: 20rpx;
-  font-size: var(--fs-sm);
-  line-height: 1.7;
+  margin-top: 16rpx;
+  font-size: 26rpx;
+  line-height: 1.65;
   color: var(--muted);
 }
 
@@ -653,17 +788,285 @@ onPullDownRefresh(async () => {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 44rpx 0 4rpx;
+  padding: 40rpx 0 2rpx;
 }
 
 .section-title {
-  font-size: 30rpx;
+  font-size: 28rpx;
   font-weight: 600;
   color: var(--text);
 }
 
 .section-more {
   font-size: var(--fs-xs);
+  color: var(--faint);
+}
+
+/* ---------------- 新建入口 ---------------- */
+.icon-new {
+  /* 强调色胶囊：新建是这一页最主动的动作，用色块而不是又一根线条 */
+  width: 72rpx;
+  height: 72rpx;
+  margin-right: 2rpx;
+  border-radius: var(--r-full);
+  background-color: var(--accent);
+  color: #fff;
+}
+
+.icon-new:active {
+  background-color: var(--accent-hover);
+}
+
+/* ---------------- 新建面板 ---------------- */
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background-color: rgba(0, 0, 0, 0.42);
+}
+
+.new-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 91;
+  padding: 12rpx 32rpx calc(env(safe-area-inset-bottom) + 24rpx);
+  background-color: var(--surface);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  transform: translateY(110%);
+  transition: transform 260ms cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.new-sheet.is-open {
+  transform: translateY(0);
+}
+
+.sheet-grip {
+  width: 72rpx;
+  height: 8rpx;
+  border-radius: var(--r-full);
+  background-color: var(--line-strong);
+  margin: 0 auto 8rpx;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  padding: 16rpx 0 20rpx;
+}
+
+.sheet-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sheet-sub {
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+}
+
+.new-input {
+  height: 96rpx;
+  padding: 0 26rpx;
+  box-sizing: border-box;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-base);
+}
+
+.new-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  height: 96rpx;
+  border-bottom: 1rpx solid var(--line);
+  color: var(--faint);
+}
+
+.new-label {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.new-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vis-opts {
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10rpx;
+}
+
+.vis {
+  height: 56rpx;
+  padding: 0 24rpx;
+  display: flex;
+  align-items: center;
+  border-radius: var(--r-full);
+  background-color: var(--surface-2);
+  font-size: var(--fs-2xs);
+  color: var(--text-2);
+}
+
+.vis-on {
+  background-color: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.new-submit {
+  margin-top: 28rpx;
+}
+
+.btn-off {
+  background-color: var(--surface-2);
+  color: var(--faint);
+}
+
+/* ---------------- 新建入口 ---------------- */
+.icon-new {
+  /* 强调色胶囊：新建是这一页最主动的动作，用色块而不是又一根线条 */
+  width: 72rpx;
+  height: 72rpx;
+  margin-right: 2rpx;
+  border-radius: var(--r-full);
+  background-color: var(--accent);
+  color: #fff;
+}
+
+.icon-new:active {
+  background-color: var(--accent-hover);
+}
+
+/* ---------------- 新建面板 ---------------- */
+.mask {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background-color: rgba(0, 0, 0, 0.42);
+}
+
+.new-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 91;
+  padding: 12rpx 32rpx calc(env(safe-area-inset-bottom) + 24rpx);
+  background-color: var(--surface);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  transform: translateY(110%);
+  transition: transform 260ms cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.new-sheet.is-open {
+  transform: translateY(0);
+}
+
+.sheet-grip {
+  width: 72rpx;
+  height: 8rpx;
+  border-radius: var(--r-full);
+  background-color: var(--line-strong);
+  margin: 0 auto 8rpx;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  padding: 16rpx 0 20rpx;
+}
+
+.sheet-title {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sheet-sub {
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+}
+
+.new-input {
+  height: 96rpx;
+  padding: 0 26rpx;
+  box-sizing: border-box;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-base);
+}
+
+.new-row {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  height: 96rpx;
+  border-bottom: 1rpx solid var(--line);
+  color: var(--faint);
+}
+
+.new-label {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.new-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vis-opts {
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10rpx;
+}
+
+.vis {
+  height: 56rpx;
+  padding: 0 24rpx;
+  display: flex;
+  align-items: center;
+  border-radius: var(--r-full);
+  background-color: var(--surface-2);
+  font-size: var(--fs-2xs);
+  color: var(--text-2);
+}
+
+.vis-on {
+  background-color: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.new-submit {
+  margin-top: 28rpx;
+}
+
+.btn-off {
+  background-color: var(--surface-2);
   color: var(--faint);
 }
 

@@ -1,12 +1,15 @@
 <template>
   <view :class="['page', `theme-${resolvedTheme}`]">
-    <view class="topbar">
-      <view class="icon-btn" @click="back">‹</view>
-      <text class="topbar-title">碎片箱</text>
-      <view class="topbar-spacer" />
-      <view class="icon-btn" @click="openImport">↥</view>
-      <view class="icon-btn" @click="reload">⟳</view>
-    </view>
+    <GTopBar back title="碎片箱" :elevated="true" @back="back">
+      <template #actions>
+        <view class="icon-btn" @click="openImport">
+          <GIcon name="import" :size="40" />
+        </view>
+        <view class="icon-btn" @click="reload">
+          <GIcon name="refresh" :size="38" />
+        </view>
+      </template>
+    </GTopBar>
 
     <!-- 快速投递 -->
     <view class="compose card">
@@ -22,12 +25,20 @@
       <view v-if="images.length" class="thumbs">
         <view v-for="(img, i) in images" :key="i" class="thumb">
           <image :src="img" mode="aspectFill" class="thumb-img" />
-          <view class="thumb-x" @click="removeImage(i)">×</view>
+          <view class="thumb-x" @click="removeImage(i)">
+            <GIcon name="close" :size="22" :weight="2.6" />
+          </view>
         </view>
       </view>
       <view class="compose-bar">
-        <view class="chip" @click="addImages">图片{{ images.length ? ` ${images.length}` : '' }}</view>
-        <view class="chip" @click="pasteClipboard">粘贴</view>
+        <view class="chip" @click="addImages">
+          <GIcon name="image" :size="28" />
+          <text class="chip-text">图片{{ images.length ? ` ${images.length}` : '' }}</text>
+        </view>
+        <view class="chip" @click="pasteClipboard">
+          <GIcon name="clipboard" :size="28" />
+          <text class="chip-text">粘贴</text>
+        </view>
         <view class="topbar-spacer" />
         <button class="btn send" :disabled="!canSend || sending" @click="submit">
           {{ sending ? '投递中…' : '投递' }}
@@ -71,15 +82,22 @@
           {{ item.source_meta['url'] }}
         </view>
         <view class="item-actions">
-          <text v-if="item.doc_id" class="action" @click.stop="openDoc(item.doc_id)">打开草稿</text>
-          <text
+          <view v-if="item.doc_id" class="action" @click.stop="openDoc(item.doc_id)">
+            <GIcon name="doc" :size="26" />
+            <text class="action-text">打开草稿</text>
+          </view>
+          <view
             v-if="item.status === 'captured' || item.status === 'queued'"
             class="action"
             @click.stop="dispatchOne(item)"
           >
-            整理成文
-          </text>
-          <text class="action danger" @click.stop="remove(item)">删除</text>
+            <GIcon name="sparkle" :size="26" />
+            <text class="action-text">整理成文</text>
+          </view>
+          <view class="action danger" @click.stop="remove(item)">
+            <GIcon name="trash" :size="26" />
+            <text class="action-text">删除</text>
+          </view>
         </view>
       </view>
     </view>
@@ -96,10 +114,14 @@
     <view v-if="selected.length" class="batch">
       <text class="batch-info">已选 {{ selected.length }} 条</text>
       <view class="topbar-spacer" />
-      <text class="batch-cancel" @click="selected = []">取消</text>
-      <button class="btn batch-btn" :disabled="working" @click="dispatchSelected">
-        {{ selected.length > 1 ? '合并成文' : '整理成文' }}
-      </button>
+      <view class="batch-cancel" @click="selected = []">
+        <GIcon name="close" :size="26" />
+        <text class="action-text">取消</text>
+      </view>
+      <view :class="['btn', 'batch-btn', working ? 'btn-off' : '']" @click="working ? null : dispatchSelected()">
+        <GIcon name="sparkle" :size="28" />
+        <text class="batch-btn-text">{{ selected.length > 1 ? '合并成文' : '整理成文' }}</text>
+      </view>
     </view>
 
     <view class="tail" />
@@ -108,6 +130,8 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import GTopBar from '../../shared/components/GTopBar.vue'
+import GIcon from '../../shared/components/GIcon.vue'
 import { onReachBottom, onShow } from '@dcloudio/uni-app'
 import {
   capture,
@@ -383,14 +407,14 @@ onShow(() => {
   position: absolute;
   top: 0;
   right: 0;
-  width: 20px;
-  height: 20px;
-  line-height: 18px;
-  text-align: center;
-  font-size: 14px;
+  width: 44rpx;
+  height: 44rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #fff;
   background-color: rgba(0, 0, 0, 0.55);
-  border-bottom-left-radius: 8px;
+  border-bottom-left-radius: var(--r-sm);
 }
 
 .compose-bar {
@@ -401,11 +425,18 @@ onShow(() => {
 }
 
 .chip {
-  font-size: 13px;
-  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  height: 60rpx;
+  padding: 0 22rpx;
+  border-radius: var(--r-full);
   background-color: var(--surface-2);
-  padding: 6px 12px;
-  border-radius: 8px;
+  color: var(--text-2);
+}
+
+.chip-text {
+  font-size: 26rpx;
 }
 
 .chip:active {
@@ -503,8 +534,15 @@ onShow(() => {
 }
 
 .action {
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6rpx;
+  height: 56rpx;
   color: var(--accent);
+}
+
+.action-text {
+  font-size: 26rpx;
 }
 
 .action.danger {
@@ -532,15 +570,29 @@ onShow(() => {
 }
 
 .batch-cancel {
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6rpx;
   color: var(--muted);
 }
 
 .batch-btn {
-  height: 34px;
-  padding: 0 16px;
-  font-size: 14px;
-  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  height: 68rpx;
+  padding: 0 28rpx;
+  border-radius: var(--r-full);
+}
+
+.batch-btn-text {
+  font-size: 28rpx;
+}
+
+/* 禁用态不用 opacity 压白字：白字在半透明蓝上会彻底看不见 */
+.btn-off {
+  background-color: var(--surface-2);
+  color: var(--faint);
 }
 
 .hint {

@@ -1,10 +1,6 @@
 <template>
   <view :class="['page', `theme-${resolvedTheme}`]">
-    <view class="topbar">
-      <view class="icon-btn" @click="back">‹</view>
-      <text class="topbar-title">设置</text>
-      <view class="topbar-spacer" />
-    </view>
+    <GTopBar back title="设置" :elevated="true" @back="back" />
 
     <view class="section">
       <text class="section-label muted">服务器</text>
@@ -13,7 +9,7 @@
           <text class="cell-title">服务器地址</text>
           <text class="cell-sub muted">{{ baseUrl }}</text>
         </view>
-        <text class="chev">›</text>
+        <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
       </view>
     </view>
 
@@ -82,6 +78,8 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import GTopBar from '../../shared/components/GTopBar.vue'
+import GIcon from '../../shared/components/GIcon.vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useAuthStore } from '../../shared/store/auth'
 import { getBaseUrl } from '../../shared/config/server'
@@ -217,8 +215,10 @@ onShow(() => {
 }
 
 .chev {
-  color: var(--muted);
-  font-size: 18px;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--faint);
 }
 
 .danger {

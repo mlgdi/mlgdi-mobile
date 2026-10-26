@@ -1,10 +1,6 @@
 <template>
   <view :class="['page', `theme-${resolvedTheme}`]">
-    <view class="topbar">
-      <view class="icon-btn" @click="back">‹</view>
-      <text class="topbar-title">导入 Markdown</text>
-      <view class="topbar-spacer" />
-    </view>
+    <GTopBar back title="导入 Markdown" :elevated="true" @back="back" />
 
     <view class="section">
       <view class="row actions">
@@ -29,7 +25,7 @@
         <picker :range="dirOptions" :value="dirIndex" @change="onDir">
           <view class="cell">
             <text class="cell-title">{{ dirOptions[dirIndex] }}</text>
-            <text class="chev">›</text>
+            <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
           </view>
         </picker>
       </view>
@@ -42,7 +38,7 @@
         <picker :range="visibilityOptions" range-key="label" :value="visibilityIndex" @change="onVisibility">
           <view class="cell">
             <text class="cell-title">{{ visibilityOptions[visibilityIndex].label }}</text>
-            <text class="chev">›</text>
+            <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
           </view>
         </picker>
       </view>
@@ -79,6 +75,8 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import GTopBar from '../../shared/components/GTopBar.vue'
+import GIcon from '../../shared/components/GIcon.vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { createDoc } from '../../shared/api/notes'
 import { guessTitle, pickMarkdownFile, readClipboard } from '../../shared/utils/file'
@@ -252,8 +250,10 @@ onLoad(async () => {
 }
 
 .chev {
-  color: var(--muted);
-  font-size: 18px;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--faint);
 }
 
 .preview {

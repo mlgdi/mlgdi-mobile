@@ -25,7 +25,7 @@ const emit = defineEmits<{ (e: 'back'): void }>()
 <template>
   <view :class="['gtop', { 'is-elevated': elevated, 'is-sub': back }]">
     <view v-if="back" class="lead" @click="emit('back')">
-      <GIcon name="chevron-left" :size="44" />
+      <GIcon name="chevron-left" :size="48" :weight="2.3" />
     </view>
     <text :class="['title', { 'is-brand': !back }]">{{ title }}</text>
     <view class="spacer" />
@@ -78,17 +78,25 @@ const emit = defineEmits<{ (e: 'back'): void }>()
 .gtop.is-sub .title {
   flex: 1 1 auto;
   min-width: 0;
-  text-align: center;
+  /* 左对齐：手机窄，居中时左侧 96rpx、右侧动作数量不定，
+     标题的「视觉中心」会跟着漂；左对齐与品牌名同一套语言 */
+  text-align: left;
 }
 
 .lead {
-  width: 88rpx;
+  /* 96rpx：返回箭头放大到 48rpx 后，88rpx 的格子里两侧几乎贴边 */
+  width: 96rpx;
   height: 88rpx;
-  margin-left: -24rpx;
+  margin-left: -28rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--accent);
+  /* 中性色而不是强调色：返回是导航动作，不该比正文里的链接更抢眼 */
+  color: var(--text-2);
+}
+
+.lead:active {
+  opacity: 0.5;
 }
 
 .spacer {
