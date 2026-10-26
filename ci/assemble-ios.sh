@@ -104,7 +104,9 @@ log "4/8 写 Bundle ID"
 # 只改主 App target 的 io.dcloud.HBuilder；另一个 target（com.dcloud.XXX）是插件示例，不动
 BEFORE=$(grep -c "io.dcloud.HBuilder" "$PBXPROJ" || true)
 sedi "s/io\.dcloud\.HBuilder/$BUNDLE_ID/g" "$PBXPROJ"
-echo "替换 io.dcloud.HBuilder → $BUNDLE_ID（$BEFORE 处）"
+# 中文全角括号紧跟在变量后面时，bash 会把「（」当成变量名的一部分（实测 unbound variable），
+# 所以这里一律用 ${} 包住
+echo "替换 io.dcloud.HBuilder → ${BUNDLE_ID}（共 ${BEFORE} 处）"
 
 log "5/8 写 AppKey / 显示名 / 版本（Info.plist）"
 plist_set() {
