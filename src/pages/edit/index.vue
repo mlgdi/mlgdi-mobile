@@ -1,135 +1,149 @@
 <template>
   <view :class="['page', 'editor-page', `theme-${resolvedTheme}`]">
-    <GTopBar back :title="title || '编辑'" :elevated="true" @back="back">
+    <!-- 顶栏只显示「编辑 / 预览」：标题已经挪进编辑区，
+         两处都显示会让「我正在改哪一篇」这件事出现两个来源 -->
+    <GTopBar back :title="preview ? '预览' : '编辑'" :elevated="true" @back="back">
       <template #actions>
         <view class="icon-btn preview-btn" @click="togglePreview">
           <GIcon :name="preview ? 'pencil' : 'eye'" :size="38" />
         </view>
-        <view :class="['icon-btn', 'save-btn', saving ? 'is-busy' : '']" @click="saveAll">
+        <view :class="['icon-btn', 'save-btn', saving ? 'is-busy' : '']" @click="saveAll()">
           <GIcon name="check" :size="40" :weight="2.4" />
         </view>
       </template>
     </GTopBar>
 
-    <!-- 属性行：点 chip 切换，比原来的底部按钮区省一整块高度 -->
+    <!-- 属性行：chips 横滚（手机竖屏放不下五个 chip + 发布），发布固定在右端 -->
     <view class="meta">
-      <picker :range="statusOptions" range-key="label" :value="statusIndex" @change="onStatus">
-        <view :class="['meta-chip', status === 'published' ? 'is-live' : '']">{{ statusLabel }}</view>
-      </picker>
-      <picker
-        :range="visibilityOptions"
-        range-key="label"
-        :value="visibilityIndex"
-        @change="onVisibility"
-      >
-        <view class="meta-chip">{{ visibilityLabel }}</view>
-      </picker>
-      <text class="meta-ver">v{{ version }}</text>
-      <view class="meta-spacer" />
-      <text v-if="dirty || metaDirty" class="meta-dirty">未保存</text>
+      <scroll-view class="meta-scroll" scroll-x :show-scrollbar="false">
+        <view class="meta-inner">
+          <picker :range="statusOptions" range-key="label" :value="statusIndex" @change="onStatus">
+            <view :class="['meta-chip', status === 'published' ? 'is-live' : '']">{{ statusLabel }}</view>
+          </picker>
+          <picker
+            :range="visibilityOptions"
+            range-key="label"
+            :value="visibilityIndex"
+            @change="onVisibility"
+          >
+            <view class="meta-chip">{{ visibilityLabel }}</view>
+          </picker>
+
+          <view :class="['meta-chip', 'meta-btn', coverImage ? 'is-on' : '']" @click="openCover">
+            <GIcon name="cover" :size="26" />
+            <text class="meta-btn-t">封面</text>
+          </view>
+          <view :class="['meta-chip', 'meta-btn', tags.length ? 'is-on' : '']" @click="openTags">
+            <GIcon name="tag" :size="26" />
+            <text class="meta-btn-t">{{ tags.length ? `标签 ${tags.length}` : '标签' }}</text>
+          </view>
+
+          <text class="meta-ver">v{{ version }}</text>
+        </view>
+      </scroll-view>
+      <text v-if="dirtyAll" class="meta-dirty">未保存</text>
       <view v-if="status !== 'published'" class="meta-pub" @click="publish">发布</view>
+    </view>
+
+    <!-- 工具栏：两行。
+         行 1 固定（高频：撤销、标题级别、行内强调），行 2 横滚（插入类 + AI）。
+         放顶部而不是底部：标题已经占了编辑区第一行，工具栏贴着属性行才读得顺；
+         底部留给键盘，避免输入时工具条被键盘顶起又落下。 -->
+    <view v-if="!preview" class="tools">
+      <view class="tools-row tools-fixed">
+        <view class="tb" @click="undo"><GIcon name="undo" :size="30" /></view>
+        <view class="tb" @click="redo"><GIcon name="redo" :size="30" /></view>
+        <view class="tb-sep" />
+        <view class="tb tb-w" @click="toggleHeading(1)"><text class="tb-t">H1</text></view>
+        <view class="tb tb-w" @click="toggleHeading(2)"><text class="tb-t">H2</text></view>
+        <view class="tb tb-w" @click="toggleHeading(3)"><text class="tb-t">H3</text></view>
+        <view class="tb-sep" />
+        <view class="tb tb-w" @click="surround('**', '粗体')"><text class="tb-t is-bold">B</text></view>
+        <view class="tb tb-w" @click="surround('*', '斜体')"><text class="tb-t is-italic">I</text></view>
+        <view class="tb tb-w" @click="surround('~~', '删除线')"><text class="tb-t is-strike">S</text></view>
+        <view class="tb tb-w" @click="surround('==', '高亮')"><text class="tb-t is-mark">H</text></view>
+        <view class="tb" @click="surround('`', 'code')"><GIcon name="code" :size="28" /></view>
+      </view>
+
+      <scroll-view class="tools-scroll" scroll-x :show-scrollbar="false">
+        <view class="tools-row">
+          <view class="tb tb-w" @click="toggleLine('- ', ['- ', '* ', '+ ', '- [ ] '])">
+            <text class="tb-t">•</text>
+          </view>
+          <view class="tb tb-w" @click="toggleLine('1. ', ['1. ', '2. ', '3. '])">
+            <text class="tb-t">1.</text>
+          </view>
+          <view class="tb tb-w" @click="toggleLine('- [ ] ', ['- [ ] ', '- [x] '])">
+            <text class="tb-t">☑</text>
+          </view>
+          <view class="tb tb-w" @click="toggleLine('> ', ['> '])"><text class="tb-t">❝</text></view>
+
+          <view class="tb-sep" />
+
+          <view class="tb" @click="insertLink"><GIcon name="link" :size="28" /></view>
+          <view class="tb" @click="pickImage"><GIcon name="image" :size="28" /></view>
+          <view class="tb" @click="pickVideo"><GIcon name="video" :size="28" /></view>
+          <view class="tb" @click="insertTable"><GIcon name="table" :size="28" /></view>
+          <view class="tb tb-w" @click="insertCodeBlock"><text class="tb-t tb-mono">{ }</text></view>
+          <view class="tb" @click="insertBlock('---')"><GIcon name="hr" :size="28" /></view>
+          <view class="tb" @click="insertDate"><GIcon name="clock" :size="28" /></view>
+          <view class="tb" @click="emojiOpen = true"><GIcon name="smile" :size="28" /></view>
+
+          <view class="tb-sep" />
+
+          <view class="tb tb-ai" @click="openAi">
+            <GIcon name="sparkle" :size="30" />
+            <text class="tb-t tb-ai-t">AI</text>
+          </view>
+        </view>
+      </scroll-view>
     </view>
 
     <view v-if="loading" class="hint">
       <text class="muted">加载中…</text>
     </view>
 
-    <template v-else>
+    <!-- 编辑区：标题 + 正文在同一张「纸」里。
+         技术上仍是两个输入元素——textarea 无法在一段文本里混排两种字号；
+         但同一个背景、同一个左右边距、标题无边框，视觉上是一整块。 -->
+    <view v-else-if="!preview" class="paper">
+      <input
+        v-model="title"
+        class="paper-title"
+        placeholder="标题"
+        placeholder-class="ph"
+        :maxlength="200"
+        :adjust-position="false"
+      />
       <textarea
-        v-if="!preview"
         v-model="body"
-        class="editor"
+        class="paper-body"
         placeholder="正文（Markdown）。front-matter 归 Obsidian，这里只改正文。"
         placeholder-class="ph"
         :maxlength="-1"
         :show-confirm-bar="false"
         :adjust-position="false"
+        :cursor-spacing="24"
         @input="onInput"
         @focus="onCaret"
         @blur="onCaret"
       />
+    </view>
 
-      <!-- 预览：与阅读页同一套语义，但只求「看得懂结构」，不追像素一致 -->
-      <scroll-view v-else class="preview" scroll-y>
-        <view class="pmd">
-          <view class="pmd-inner" v-html="previewHtml"></view>
-        </view>
-        <view class="preview-tail" />
-      </scroll-view>
-
-      <!-- 工具栏：符号类用排版字符（B / H1 / •），动作类用 SVG（撤销 / 链接 / 图片 / AI）。
-           这两类语义不同，混成一类反而谁都不清楚。 -->
-      <scroll-view v-if="!preview" class="toolbar" scroll-x :show-scrollbar="false">
-        <view class="tb-row">
-          <view class="tb" @click="undo">
-            <GIcon name="undo" :size="32" />
-          </view>
-          <view class="tb" @click="redo">
-            <GIcon name="redo" :size="32" />
-          </view>
-
-          <view class="tb-sep" />
-
-          <view class="tb tb-w" @click="toggleHeading(1)"><text class="tb-t">H1</text></view>
-          <view class="tb tb-w" @click="toggleHeading(2)"><text class="tb-t">H2</text></view>
-          <view class="tb tb-w" @click="toggleHeading(3)"><text class="tb-t">H3</text></view>
-
-          <view class="tb-sep" />
-
-          <view class="tb" @click="surround('**', '粗体')"><text class="tb-t is-bold">B</text></view>
-          <view class="tb" @click="surround('*', '斜体')"><text class="tb-t is-italic">I</text></view>
-          <view class="tb" @click="surround('~~', '删除线')"><text class="tb-t is-strike">S</text></view>
-          <view class="tb" @click="surround('==', '高亮')"><text class="tb-t is-mark">H</text></view>
-          <view class="tb" @click="surround('`', 'code')">
-            <GIcon name="code" :size="30" />
-          </view>
-
-          <view class="tb-sep" />
-
-          <view class="tb" @click="toggleLine('- ', ['- ', '* ', '+ ', '- [ ] '])">
-            <text class="tb-t">•</text>
-          </view>
-          <view class="tb" @click="toggleLine('1. ', ['1. ', '2. ', '3. '])">
-            <text class="tb-t">1.</text>
-          </view>
-          <view class="tb" @click="toggleLine('- [ ] ', ['- [ ] ', '- [x] '])">
-            <text class="tb-t">☑</text>
-          </view>
-          <view class="tb" @click="toggleLine('> ', ['> '])"><text class="tb-t">❝</text></view>
-
-          <view class="tb-sep" />
-
-          <view class="tb" @click="insertLink">
-            <GIcon name="link" :size="30" />
-          </view>
-          <view class="tb" @click="pickImage">
-            <GIcon name="image" :size="30" />
-          </view>
-          <view class="tb" @click="insertTable">
-            <GIcon name="table" :size="30" />
-          </view>
-          <view class="tb" @click="insertCodeBlock">
-            <GIcon name="code" :size="30" />
-          </view>
-          <view class="tb" @click="insertBlock('---')">
-            <GIcon name="hr" :size="30" />
-          </view>
-
-          <view class="tb-sep" />
-
-          <view class="tb tb-ai" @click="openAi">
-            <GIcon name="sparkle" :size="32" />
-            <text class="tb-t tb-ai-t">AI</text>
-          </view>
-        </view>
-      </scroll-view>
-    </template>
+    <!-- 预览：与阅读页同一套语义，但只求「看得懂结构」，不追像素一致 -->
+    <scroll-view v-else class="preview" scroll-y>
+      <view class="pmd">
+        <text v-if="title" class="pmd-title">{{ title }}</text>
+        <view class="pmd-inner" v-html="previewHtml"></view>
+      </view>
+      <view class="preview-tail" />
+    </scroll-view>
 
     <!-- 浮动 AI 球：可拖动，位置记在本地。面板打开时收起，
          由面板头部那个同样的头像承担「关闭」——右下角在面板覆盖范围内，
          留着也点不到，不如把关闭放在看得见的地方。 -->
     <view
-      v-if="!loading && !aiOpen"
+      v-if="!loading && !anySheetOpen"
       :class="['ai-fab', { 'is-drag': fabDragging }]"
       :style="fabStyle"
       @touchstart="onFabStart"
@@ -193,20 +207,129 @@
         <view class="ai-tail" />
       </scroll-view>
     </view>
+
+    <!-- ==================== 封面 ==================== -->
+    <view v-if="coverOpen" class="mask" @click="coverOpen = false" />
+    <view :class="['ai-sheet', { 'is-open': coverOpen }]">
+      <view class="sheet-grip" />
+      <view class="sheet-head">
+        <text class="sheet-title">封面</text>
+        <text class="sheet-sub">列表卡片的缩略图</text>
+        <view class="sheet-spacer" />
+        <view class="sheet-close" @click="coverOpen = false">完成</view>
+      </view>
+
+      <view class="cov-body">
+        <view v-if="coverImage" class="cov-preview">
+          <image class="cov-img" :src="assetUrl(coverImage)" mode="aspectFill" />
+          <view class="cov-badge">{{ coverIsVideo ? '视频帧' : '当前封面' }}</view>
+        </view>
+        <view v-else class="cov-empty">
+          <GIcon name="cover" :size="56" />
+          <text class="cov-empty-t">还没有封面</text>
+          <text class="cov-empty-s">上传一张，或从正文里的图片挑一张</text>
+        </view>
+
+        <view class="cov-acts">
+          <view class="btn btn-ghost cov-btn" @click="pickCover">
+            <GIcon name="image" :size="28" />
+            <text class="cov-btn-t">上传封面</text>
+          </view>
+          <view v-if="bodyImages.length" class="btn btn-ghost cov-btn" @click="coverPick = true">
+            <GIcon name="cover" :size="28" />
+            <text class="cov-btn-t">从正文选（{{ bodyImages.length }}）</text>
+          </view>
+        </view>
+
+        <!-- 从正文里挑：直接复用已上传的资产，不重复占空间 -->
+        <scroll-view v-if="coverPick && bodyImages.length" class="cov-strip" scroll-x :show-scrollbar="false">
+          <view class="cov-strip-inner">
+            <view
+              v-for="img in bodyImages"
+              :key="img"
+              class="cov-thumb"
+              @click="useCover(img)"
+            >
+              <image class="cov-thumb-img" :src="assetUrl(img)" mode="aspectFill" />
+            </view>
+          </view>
+        </scroll-view>
+
+        <view v-if="coverImage" class="cov-remove" @click="clearCover">
+          <GIcon name="trash" :size="26" />
+          <text class="cov-btn-t">移除封面</text>
+        </view>
+        <text class="cov-note">
+          写入 front-matter 的 cover_image。移除后列表卡片会回落到纯文字卡。
+        </text>
+      </view>
+    </view>
+
+    <!-- ==================== 标签 ==================== -->
+    <view v-if="tagsOpen" class="mask" @click="tagsOpen = false" />
+    <view :class="['ai-sheet', { 'is-open': tagsOpen }]">
+      <view class="sheet-grip" />
+      <view class="sheet-head">
+        <text class="sheet-title">标签</text>
+        <text class="sheet-sub">{{ tags.length }} 个</text>
+        <view class="sheet-spacer" />
+        <view class="sheet-close" @click="tagsOpen = false">完成</view>
+      </view>
+
+      <view class="tag-body">
+        <view v-if="tags.length" class="tag-list">
+          <view v-for="(t, i) in tags" :key="t + i" class="tag-chip">
+            <text class="tag-t">{{ t }}</text>
+            <view class="tag-x" @click="removeTag(i)"><GIcon name="close" :size="22" :weight="2.6" /></view>
+          </view>
+        </view>
+        <text v-else class="tag-empty">还没有标签</text>
+
+        <view class="tag-add">
+          <input
+            v-model="tagInput"
+            class="tag-input"
+            placeholder="输入标签后回车"
+            placeholder-class="ph"
+            :maxlength="30"
+            confirm-type="done"
+            @confirm="addTag"
+          />
+          <view :class="['tag-add-btn', tagInput.trim() ? '' : 'is-off']" @click="addTag">添加</view>
+        </view>
+
+      </view>
+    </view>
+
+    <!-- ==================== 表情 ==================== -->
+    <view v-if="emojiOpen" class="mask" @click="emojiOpen = false" />
+    <view :class="['ai-sheet', { 'is-open': emojiOpen }]">
+      <view class="sheet-grip" />
+      <view class="sheet-head">
+        <text class="sheet-title">插入符号</text>
+        <text class="sheet-sub">常用表情与排版符号</text>
+      </view>
+      <scroll-view class="emoji-body" scroll-y>
+        <view class="emoji-grid">
+          <view v-for="e in EMOJIS" :key="e" class="emoji" @click="insertEmoji(e)">{{ e }}</view>
+        </view>
+      </scroll-view>
+    </view>
   </view>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
 import GTopBar from '../../shared/components/GTopBar.vue'
 import GIcon from '../../shared/components/GIcon.vue'
+import { onBackPress, onLoad } from '@dcloudio/uni-app'
 import {
   doc as apiDoc,
   patchMeta,
   publishDoc,
   updateBody,
   type DocDetail,
+  type MetaPatchPayload,
 } from '../../shared/api/notes'
 import { aiActions, aiAssist, type AiAction } from '../../shared/api/ai'
 import { ApiError } from '../../shared/api/client'
@@ -214,9 +337,12 @@ import { readSession } from '../../shared/auth/session'
 import { getBaseUrl } from '../../shared/config/server'
 import { renderMarkdown } from '../../shared/utils/markdown'
 import { resolvedTheme } from '../../shared/theme'
+import { assetUrl } from '../../shared/utils/asset'
 
 const docId = ref('')
 const title = ref('')
+/** 打开时的标题，用来判断标题有没有改过（不改就不发 title 字段） */
+const titleOriginal = ref('')
 const body = ref('')
 const original = ref('')
 const version = ref(0)
@@ -229,6 +355,36 @@ const preview = ref(false)
 /** 打开时的属性快照，用来判断元数据有没有改过 */
 const initStatus = ref<string>('draft')
 const initVisibility = ref<string>('public')
+
+/* ---------------- 封面 ---------------- */
+const coverImage = ref('')
+const initCover = ref('')
+const coverOpen = ref(false)
+/** 是否展开「从正文挑」的缩略图条 */
+const coverPick = ref(false)
+
+/* ---------------- 标签 ---------------- */
+const tags = ref<string[]>([])
+const initTagsKey = ref('')
+const tagsOpen = ref(false)
+const tagInput = ref('')
+
+/* ---------------- 符号面板 ---------------- */
+const emojiOpen = ref(false)
+
+/** 任何一个底部面板打开时都要收起浮动球——它 z-index 更高，会压住面板上的按钮 */
+const anySheetOpen = computed(
+  () => aiOpen.value || coverOpen.value || tagsOpen.value || emojiOpen.value,
+)
+
+/** 常用表情与排版符号。手机上打不出这些，只能点。 */
+const EMOJIS = [
+  '😀', '😅', '🙂', '😍', '🤔', '😐', '😴', '😮', '😭', '😡',
+  '👍', '👎', '👌', '🙏', '👏', '💪', '✨', '🔥', '💡', '⭐',
+  '❤️', '💔', '✅', '❌', '⚠️', '❓', '❗', '📌', '📎', '🔗',
+  '→', '←', '↑', '↓', '·', '—', '…', '§', '¶', '†',
+  '≤', '≥', '≠', '≈', '×', '÷', '±', '∞', '√', '∑',
+]
 
 const statusOptions = [
   { value: 'draft', label: '草稿' },
@@ -247,36 +403,108 @@ const visibilityIndex = computed(() =>
 )
 const statusLabel = computed(() => statusOptions[statusIndex.value].label)
 const visibilityLabel = computed(() => visibilityOptions[visibilityIndex.value].label)
-const dirty = computed(() => body.value !== original.value)
+/** 正文有没有改（尾随空白不算：textarea 在部分机型上会补一个尾换行） */
+const dirty = computed(() => body.value.replace(/\s+$/, '') !== original.value.replace(/\s+$/, ''))
+
+const tagsKey = computed(() => tags.value.join('\u0001'))
+
+/** 元数据有没有改：标题 / 状态 / 可见性 / 封面 / 标签 */
 const metaDirty = computed(
-  () => status.value !== initStatus.value || visibility.value !== initVisibility.value,
+  () =>
+    title.value.trim() !== titleOriginal.value ||
+    status.value !== initStatus.value ||
+    visibility.value !== initVisibility.value ||
+    coverImage.value !== initCover.value ||
+    tagsKey.value !== initTagsKey.value,
 )
+
+/** 任何一个角落有改动 */
+const dirtyAll = computed(() => dirty.value || metaDirty.value)
 
 const previewHtml = computed(() => (preview.value ? renderMarkdown(body.value).html : ''))
 
+/**
+ * 把资产地址归一成 vault 相对路径。
+ *
+ * 正文里的图片地址有两种历史写法：早期插的是资产端点
+ * `/api/v1/assets?path=Assets%2Fx.png`，现在插的是 `Assets/x.png`。
+ * 「从正文挑封面」两种都得认。
+ */
+function normalizeAssetRef(raw: string): string {
+  const v = (raw || '').trim()
+  if (!v) return ''
+  const m = v.match(/\/api\/v1\/assets\?path=([^&]+)/)
+  if (m) {
+    try {
+      return decodeURIComponent(m[1])
+    } catch {
+      return m[1]
+    }
+  }
+  return v
+}
+
 /* ============================ 载入与保存 ============================ */
 
-function back(): void {
-  if (!dirty.value && !metaDirty.value) {
+/**
+ * 退出编辑页。
+ *
+ * `navigateBack` 在页面栈只有一层时会**静默失败**（直接打开链接、刷新、
+ * 或从外部跳进来都属于这种），用户会看到「点了返回没反应」。
+ * 所以必须判栈，兜底 reLaunch 回库列表。
+ */
+function leave(): void {
+  const stack = typeof getCurrentPages === 'function' ? getCurrentPages() : []
+  if (stack.length > 1) {
     uni.navigateBack()
+  } else {
+    uni.reLaunch({ url: '/pages/library/index' })
+  }
+}
+
+/**
+ * 返回：有改动就先静默保存，存成功直接走——**不弹窗打断**。
+ *
+ * 原来的做法是「有改动就弹确认框」，但移动端用户点了返回就是想走，
+ * 一个「放弃 / 继续编辑」的二选一既容易误触，又让每次返回都变成一次决策。
+ * 存不下（冲突 / 断网）才弹窗，此时用户确实需要知道「东西没保住」。
+ */
+async function back(): Promise<void> {
+  if (saving.value) return
+  if (!dirtyAll.value) {
+    leave()
+    return
+  }
+  const ok = await saveAll({ silent: true })
+  if (ok) {
+    leave()
     return
   }
   uni.showModal({
-    title: '放弃修改？',
-    content: '正文或属性有未保存的改动。',
-    confirmText: '放弃',
+    title: '没能保存',
+    content: '改动还没写进 vault。要放弃这些改动退出吗？',
+    confirmText: '放弃退出',
     cancelText: '继续编辑',
     success: (res) => {
-      if (res.confirm) uni.navigateBack()
+      if (res.confirm) leave()
     },
   })
 }
+
+/** 安卓物理返回键 / 手势返回：走和顶栏箭头同一条路径 */
+onBackPress(() => {
+  if (saving.value) return true
+  if (!dirtyAll.value) return false
+  void back()
+  return true
+})
 
 async function load(): Promise<void> {
   loading.value = true
   try {
     const detail: DocDetail = await apiDoc(docId.value)
-    title.value = detail.title
+    title.value = detail.title || ''
+    titleOriginal.value = detail.title || ''
     body.value = detail.body || ''
     original.value = detail.body || ''
     version.value = detail.version
@@ -284,6 +512,20 @@ async function load(): Promise<void> {
     visibility.value = (detail.visibility as typeof visibility.value) || 'public'
     initStatus.value = status.value
     initVisibility.value = visibility.value
+
+    // 封面与标签也进快照：不然一进页面就显示「未保存」。
+    // tags 不在响应顶层，只在 frontmatter 里（后端把整份 front-matter 一起返回），
+    // 所以要往下钻一层——踩过一次「标签永远为空」。
+    coverImage.value = (detail.cover_image || '').trim()
+    initCover.value = coverImage.value
+    const fm = (detail.frontmatter || {}) as Record<string, unknown>
+    const fmTags = fm.tags
+    tags.value = Array.isArray(fmTags)
+      ? fmTags.map((t) => String(t)).filter(Boolean)
+      : typeof fmTags === 'string' && fmTags.trim()
+        ? fmTags.split(/[,，\s]+/).filter(Boolean)
+        : []
+    initTagsKey.value = tags.value.join('\u0001')
   } catch (err: any) {
     uni.showToast({ title: err?.reason || '打开失败', icon: 'none' })
   } finally {
@@ -320,13 +562,28 @@ function handleConflict(err: unknown): boolean {
   return false
 }
 
-/** 一个按钮存完所有东西：用户不该为了改个可见性再找第二个按钮 */
-async function saveAll(): Promise<void> {
-  if (!dirty.value && !metaDirty.value) {
-    uni.showToast({ title: '没有改动', icon: 'none' })
-    return
+/**
+ * 一个按钮存完所有东西：用户不该为了改个可见性再找第二个按钮。
+ *
+ * 返回 boolean 而不是 void：返回路径要据此判断「存住了没有」，
+ * 存住了才静默退出，存不住才打断用户。
+ *
+ * `silent` 用于返回时的自动保存——不该为一个后台动作弹 toast。
+ */
+async function saveAll(opts: { silent?: boolean } = {}): Promise<boolean> {
+  if (!dirtyAll.value) {
+    if (!opts.silent) uni.showToast({ title: '没有改动', icon: 'none' })
+    return true
   }
-  if (saving.value) return
+  if (saving.value) return false
+
+  // 标题是 front-matter 的指纹，空标题落盘后列表里就是一格空白
+  const nextTitle = title.value.trim()
+  if (!nextTitle) {
+    uni.showToast({ title: '标题不能为空', icon: 'none' })
+    return false
+  }
+
   saving.value = true
   try {
     if (dirty.value) {
@@ -334,19 +591,34 @@ async function saveAll(): Promise<void> {
       version.value = res.doc.version
       original.value = body.value
     }
+
     if (metaDirty.value) {
-      const res = await patchMeta(docId.value, {
-        status: status.value,
-        visibility: visibility.value,
-        base_version: version.value,
-      })
-      version.value = res.doc.version
+      // 只发真的变了的字段：后端按字段写 front-matter，
+      // 把没改的也带上会无谓地重写文件、触发 Obsidian 重新加载
+      const patch: MetaPatchPayload = { base_version: version.value }
+      if (nextTitle !== titleOriginal.value) patch.title = nextTitle
+      if (status.value !== initStatus.value) patch.status = status.value
+      if (visibility.value !== initVisibility.value) patch.visibility = visibility.value
+      if (coverImage.value !== initCover.value) patch.cover_image = coverImage.value
+      if (tagsKey.value !== initTagsKey.value) patch.tags = [...tags.value]
+
+      if (Object.keys(patch).length > 1) {
+        const res = await patchMeta(docId.value, patch)
+        version.value = res.doc.version
+      }
+      title.value = nextTitle
+      titleOriginal.value = nextTitle
       initStatus.value = status.value
       initVisibility.value = visibility.value
+      initCover.value = coverImage.value
+      initTagsKey.value = tags.value.join('\u0001')
     }
-    uni.showToast({ title: '已保存', icon: 'none' })
+
+    if (!opts.silent) uni.showToast({ title: '已保存', icon: 'none' })
+    return true
   } catch (err: any) {
     if (!handleConflict(err)) uni.showToast({ title: err?.reason || '保存失败', icon: 'none' })
+    return false
   } finally {
     saving.value = false
   }
@@ -360,11 +632,21 @@ function publish(): void {
       if (!res.confirm) return
       saving.value = true
       try {
-        // 先落正文再切状态：顺序反了会把旧正文一起发出去
+        // 先落正文（和标题）再切状态：顺序反了会把旧正文一起发出去
         if (dirty.value) {
           const r = await updateBody(docId.value, body.value, version.value)
           version.value = r.doc.version
           original.value = body.value
+        }
+        const nextTitle = title.value.trim()
+        if (nextTitle && nextTitle !== titleOriginal.value) {
+          const r = await patchMeta(docId.value, {
+            title: nextTitle,
+            base_version: version.value,
+          })
+          version.value = r.doc.version
+          title.value = nextTitle
+          titleOriginal.value = nextTitle
         }
         const r = await publishDoc(docId.value, {
           status: 'published',
@@ -410,7 +692,7 @@ function applyEdit(next: string, caret: number): void {
   cursor.value = caret
   void nextTick(() => {
     if (typeof document === 'undefined') return
-    const el = document.querySelector('.editor textarea, textarea') as HTMLTextAreaElement | null
+    const el = document.querySelector('.paper-body textarea, textarea') as HTMLTextAreaElement | null
     try {
       el?.setSelectionRange(caret, caret)
     } catch {
@@ -511,6 +793,12 @@ function insertLink(): void {
   applyEdit(body.value.slice(0, s) + chunk + body.value.slice(s), s + chunk.length)
 }
 
+/** 行内插入（不补空行）：日期、符号这类不该把段落切开 */
+function insertText(text: string): void {
+  const s = cursor.value
+  applyEdit(body.value.slice(0, s) + text + body.value.slice(s), s + text.length)
+}
+
 function insertTable(): void {
   insertBlock('| 列一 | 列二 | 列三 |\n| --- | --- | --- |\n|  |  |  |')
 }
@@ -519,23 +807,15 @@ function insertCodeBlock(): void {
   insertBlock('```text\n\n```')
 }
 
-/**
- * 图片：选图 → 上传 → 插入 markdown。
- * 上传接口要求 `Authorization` + `X-Device-Key`（设备绑定的 token 缺后者必 401），
- * 所以不能裸用 uni.uploadFile，必须把 session 里两样都带上。
- */
-function pickImage(): void {
-  uni.chooseImage({
-    count: 1,
-    sizeType: ['compressed'],
-    success: (res) => {
-      const path = (res.tempFilePaths || [])[0]
-      if (path) void uploadImage(path)
-    },
-  })
-}
+/* ---------------- 上传（图片 / 视频 / 封面共用） ---------------- */
 
-async function uploadImage(localPath: string): Promise<void> {
+/**
+ * 上传本地文件到 Assets/，返回 `{ path, url }`。
+ *
+ * 两个 header 缺一不可：设备绑定的 token 少了 `X-Device-Key` 会 401
+ * （Web 端只带 Authorization 也能过，所以这个坑只有在 App 上才暴露）。
+ */
+async function uploadAsset(localPath: string): Promise<{ path: string; url: string }> {
   const session = readSession()
   uni.showLoading({ title: '上传中…', mask: true })
   try {
@@ -551,8 +831,11 @@ async function uploadImage(localPath: string): Promise<void> {
         success: (r) => {
           try {
             const payload = JSON.parse(r.data || '{}')
-            if (r.statusCode >= 400) reject(new Error(payload?.detail?.reason || '上传失败'))
-            else resolve(payload)
+            if (r.statusCode >= 400) {
+              reject(new Error(payload?.detail?.reason || payload?.detail?.message_key || '上传失败'))
+            } else {
+              resolve(payload)
+            }
           } catch {
             reject(new Error('上传响应解析失败'))
           }
@@ -560,13 +843,156 @@ async function uploadImage(localPath: string): Promise<void> {
         fail: () => reject(new Error('上传失败（网络）')),
       })
     })
-    insertBlock(`![](${data.url || ''})`)
-    uni.showToast({ title: '图片已插入', icon: 'none' })
-  } catch (err: any) {
-    uni.showToast({ title: err?.message || '上传失败', icon: 'none' })
+    return { path: data.path || '', url: data.url || '' }
   } finally {
+    // 必须先关 loading 再 toast：uni 的 loading 与 toast 是同一个组件，
+    // 顺序反了 toast 会被 hideLoading 立刻抹掉（老代码踩过）
     uni.hideLoading()
   }
+}
+
+/** 插入用的地址：优先 vault 相对路径（两端都能自己拼资产端点），没有才退回完整 url */
+function assetRefOf(data: { path: string; url: string }): string {
+  return data.path || data.url
+}
+
+/**
+ * 图片：选图 → 上传 → 插入 markdown。
+ * 存相对路径而不是资产端点 url：url 带域名和查询串，换域名后整篇图全废。
+ */
+function pickImage(): void {
+  uni.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    success: async (res) => {
+      const localPath = (res.tempFilePaths || [])[0]
+      if (!localPath) return
+      try {
+        const data = await uploadAsset(localPath)
+        insertBlock(`![](${assetRefOf(data)})`)
+        uni.showToast({ title: '图片已插入', icon: 'none' })
+      } catch (err: any) {
+        uni.showToast({ title: err?.message || '上传失败', icon: 'none' })
+      }
+    },
+  })
+}
+
+/**
+ * 视频：相册或相机 → 上传 → 插入 `![](Assets/x.mp4)`。
+ *
+ * Markdown 没有视频语法，所以两端靠同一份约定：`![]()` 的地址是视频扩展名时
+ * 渲染成 `<video controls>`（Web 的 image 规则与移动端 markdown.ts 都已对齐）。
+ */
+function pickVideo(): void {
+  uni.chooseVideo({
+    sourceType: ['album', 'camera'],
+    compressed: true,
+    maxDuration: 180,
+    success: async (res: any) => {
+      const localPath = res?.tempFilePath
+      if (!localPath) return
+      try {
+        const data = await uploadAsset(localPath)
+        insertBlock(`![](${assetRefOf(data)})`)
+        uni.showToast({ title: '视频已插入', icon: 'none' })
+      } catch (err: any) {
+        uni.showToast({ title: err?.message || '上传失败', icon: 'none' })
+      }
+    },
+  })
+}
+
+/* ---------------- 小插入 ---------------- */
+
+function insertDate(): void {
+  const d = new Date()
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  insertText(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`)
+}
+
+function insertEmoji(e: string): void {
+  insertText(e)
+  emojiOpen.value = false
+}
+
+/* ---------------- 封面 ---------------- */
+
+/** 正文里出现过的图片（视频不算），用来「从正文挑封面」 */
+const bodyImages = computed<string[]>(() => {
+  const out: string[] = []
+  const push = (raw: string): void => {
+    const v = normalizeAssetRef(raw)
+    if (!v) return
+    // 视频当封面渲染不出来，直接排除
+    if (/\.(mp4|webm|m4v|mov|ogg)$/i.test(v)) return
+    if (!out.includes(v)) out.push(v)
+  }
+
+  const inline = /!\[[^\]]*\]\(([^)\s]+)/g
+  let m: RegExpExecArray | null
+  while ((m = inline.exec(body.value))) push(m[1])
+
+  const embed = /!\[\[([^\]]+)\]\]/g
+  while ((m = embed.exec(body.value))) {
+    const name = m[1].trim()
+    push(/^Assets\//.test(name) ? name : `Assets/${name}`)
+  }
+  return out
+})
+
+function openCover(): void {
+  coverPick.value = false
+  coverOpen.value = true
+}
+
+function pickCover(): void {
+  uni.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    success: async (res) => {
+      const localPath = (res.tempFilePaths || [])[0]
+      if (!localPath) return
+      try {
+        const data = await uploadAsset(localPath)
+        if (!data.path) throw new Error('上传未返回路径')
+        coverImage.value = data.path
+        uni.showToast({ title: '封面已更新', icon: 'none' })
+      } catch (err: any) {
+        uni.showToast({ title: err?.message || '上传失败', icon: 'none' })
+      }
+    },
+  })
+}
+
+function useCover(img: string): void {
+  coverImage.value = img
+  coverPick.value = false
+  uni.showToast({ title: '已设为封面', icon: 'none' })
+}
+
+function clearCover(): void {
+  coverImage.value = ''
+}
+
+const coverIsVideo = computed(() => /\.(mp4|webm|m4v|mov|ogg)$/i.test(coverImage.value))
+
+/* ---------------- 标签 ---------------- */
+
+function openTags(): void {
+  tagsOpen.value = true
+}
+
+function addTag(): void {
+  // 顺手剥掉用户习惯性输入的 #（Obsidian 里标签带 #，front-matter 里不带）
+  const t = tagInput.value.trim().replace(/^#+/, '')
+  if (!t) return
+  if (!tags.value.includes(t)) tags.value = [...tags.value, t]
+  tagInput.value = ''
+}
+
+function removeTag(i: number): void {
+  tags.value = tags.value.filter((_, idx) => idx !== i)
 }
 
 function togglePreview(): void {
@@ -750,8 +1176,36 @@ onLoad((options: any) => {
   display: flex;
   align-items: center;
   gap: 12rpx;
-  padding: 8rpx var(--page-gutter) 16rpx;
+  padding: 8rpx var(--page-gutter) 10rpx;
   flex: 0 0 auto;
+}
+
+/* scroll-view 自带 width:100%，在 flex 行里必须显式 width:0 才肯收缩，
+   否则它会把右侧「发布」顶出屏幕（同类坑在 AI 结果区踩过） */
+.meta-scroll {
+  flex: 1 1 auto;
+  width: 0;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.meta-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.meta-btn {
+  gap: 6rpx;
+}
+
+.meta-btn-t {
+  font-size: var(--fs-2xs);
+}
+
+.meta-btn.is-on {
+  background-color: var(--accent-soft);
+  color: var(--accent);
 }
 
 .meta-chip {
@@ -797,16 +1251,45 @@ onLoad((options: any) => {
   font-weight: 600;
 }
 
-/* ---------------- 正文 ---------------- */
-.editor {
+/* ---------------- 编辑区（标题 + 正文 = 一张纸） ----------------
+   两个输入元素、同一块背景、同一个左右边距、都没有边框：
+   textarea 无法在一段文本里混排两种字号，所以标题只能单独一个 input，
+   但视觉上它和正文是一整块，而不是「顶栏之外还有一个标题框」。 */
+.paper {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10rpx var(--page-gutter) 0;
+  background-color: var(--bg);
+}
+
+.paper-title {
+  flex: 0 0 auto;
+  width: 100%;
+  min-height: 96rpx;
+  padding: 14rpx 0 16rpx;
+  box-sizing: border-box;
+  background-color: transparent;
+  font-size: 46rpx;
+  font-weight: 700;
+  line-height: 1.32;
+  letter-spacing: -0.8rpx;
+  color: var(--text);
+}
+
+.paper-body {
   flex: 1 1 auto;
   width: 100%;
-  padding: 8rpx var(--page-gutter);
+  /* flex 子项要能收缩，必须给个确定高度；min-height 兜住小屏键盘弹起 */
+  height: 0;
+  min-height: 220rpx;
+  padding: 6rpx 0 0;
   box-sizing: border-box;
-  background-color: var(--bg);
+  background-color: transparent;
   color: var(--text);
-  font-size: 30rpx;
-  line-height: 1.72;
+  font-size: 32rpx;
+  line-height: 1.76;
 }
 
 .ph {
@@ -822,6 +1305,17 @@ onLoad((options: any) => {
 
 .preview-tail {
   height: 48rpx;
+}
+
+/* 预览里的标题：编辑时它就是第一行，预览没有理由藏起来 */
+.pmd-title {
+  display: block;
+  font-size: 44rpx;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.6rpx;
+  margin: 4rpx 0 22rpx;
+  color: var(--text);
 }
 
 /* 预览排版：比阅读页简化，只保证「看得懂结构」 */
@@ -944,31 +1438,51 @@ onLoad((options: any) => {
   padding: 2rpx 8rpx;
 }
 
-/* ---------------- 工具栏 ---------------- */
-.toolbar {
+/* ---------------- 工具栏（顶部两行） ----------------
+   行 1 固定均分：撤销 / 标题级别 / 行内强调 —— 这几个是写作时手最常伸的地方，
+   不该让用户为了点一个 H2 先横滑半屏。
+   行 2 横滚：插入类 + AI —— 低频但要全，挤在一行里必然要滚。 */
+.tools {
   flex: 0 0 auto;
   width: 100%;
-  /* 右缘渐隐：不提示的话用户不知道还有撤销/图片/AI 在后面 */
-  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 44rpx), transparent 100%);
-  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 44rpx), transparent 100%);
+  padding: 2rpx 0 6rpx;
   background-color: var(--surface);
-  border-top: 1rpx solid var(--line);
-  padding: 8rpx 0 calc(env(safe-area-inset-bottom) + 8rpx);
-  white-space: nowrap;
+  border-bottom: 1rpx solid var(--line);
 }
 
-.tb-row {
+.tools-row {
   display: inline-flex;
   align-items: center;
-  gap: 4rpx;
-  padding: 0 16rpx;
+  gap: 2rpx;
+  padding: 0 12rpx;
+}
+
+/* 行 1 用 flex 均分，12 个格子刚好铺满 750rpx，一步不用滑 */
+.tools-fixed {
+  display: flex;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.tools-fixed .tb {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.tools-scroll {
+  width: 100%;
+  white-space: nowrap;
+  /* 右缘渐隐：不提示的话用户不知道后面还有图片/视频/表格 */
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 40rpx), transparent 100%);
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 40rpx), transparent 100%);
 }
 
 .tb {
   flex: 0 0 auto;
-  min-width: 76rpx;
-  height: 76rpx;
-  padding: 0 10rpx;
+  min-width: 68rpx;
+  height: 68rpx;
+  padding: 0 8rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -982,7 +1496,7 @@ onLoad((options: any) => {
 }
 
 .tb-w {
-  min-width: 68rpx;
+  min-width: 60rpx;
 }
 
 .tb-t {
@@ -1005,16 +1519,21 @@ onLoad((options: any) => {
 }
 
 .tb-t.is-mark {
-  background-color: var(--accent-soft);
-  padding: 0 6rpx;
-  border-radius: 4rpx;
+  /* 荧光笔划下半部分，而不是整块蓝底——色块 pill 会被读成「选中态」 */
+  background: linear-gradient(transparent 58%, var(--accent-soft) 58%);
+  padding: 0 4rpx;
+}
+
+.tb-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 26rpx;
 }
 
 .tb-sep {
   flex: 0 0 auto;
   width: 1rpx;
-  height: 36rpx;
-  margin: 0 8rpx;
+  height: 30rpx;
+  margin: 0 4rpx;
   background-color: var(--line);
 }
 
@@ -1137,6 +1656,240 @@ onLoad((options: any) => {
   display: block;
   width: 64rpx;
   height: 64rpx;
+}
+
+/* 纯文字关闭：封面/标签面板用「完成」比放一个叉更符合语义 */
+.sheet-close {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--accent);
+  padding: 8rpx 0 8rpx 16rpx;
+}
+
+/* ---------------- 封面面板 ---------------- */
+.cov-body {
+  padding: 8rpx var(--page-gutter) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18rpx;
+}
+
+.cov-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background-color: var(--surface-2);
+}
+
+.cov-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.cov-badge {
+  position: absolute;
+  left: 16rpx;
+  bottom: 16rpx;
+  padding: 4rpx 16rpx;
+  border-radius: var(--r-full);
+  background-color: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: var(--fs-2xs);
+}
+
+.cov-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  height: 240rpx;
+  border-radius: var(--r-md);
+  border: 1rpx dashed var(--line-strong);
+  color: var(--faint);
+}
+
+.cov-empty-t {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.cov-empty-s {
+  font-size: var(--fs-2xs);
+}
+
+.cov-acts {
+  display: flex;
+  gap: 12rpx;
+}
+
+.cov-btn {
+  flex: 1 1 0;
+  height: 84rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  border-radius: var(--r-sm);
+}
+
+.cov-btn-t {
+  font-size: var(--fs-sm);
+}
+
+.cov-strip {
+  width: 100%;
+  white-space: nowrap;
+}
+
+.cov-strip-inner {
+  display: inline-flex;
+  gap: 12rpx;
+}
+
+.cov-thumb {
+  width: 150rpx;
+  height: 100rpx;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background-color: var(--surface-2);
+  border: 2rpx solid transparent;
+}
+
+.cov-thumb-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.cov-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  height: 72rpx;
+  color: var(--danger);
+}
+
+.cov-note {
+  font-size: var(--fs-2xs);
+  line-height: 1.6;
+  color: var(--faint);
+  padding-bottom: calc(env(safe-area-inset-bottom) + 8rpx);
+}
+
+/* ---------------- 标签面板 ---------------- */
+.tag-body {
+  padding: 8rpx var(--page-gutter) calc(env(safe-area-inset-bottom) + 20rpx);
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+}
+
+.tag-chip {
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  height: 60rpx;
+  padding: 0 6rpx 0 20rpx;
+  border-radius: var(--r-full);
+  background-color: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tag-t {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+
+.tag-x {
+  width: 44rpx;
+  height: 44rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tag-empty {
+  font-size: var(--fs-sm);
+  color: var(--faint);
+}
+
+.tag-add {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+
+.tag-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 80rpx;
+  padding: 0 22rpx;
+  box-sizing: border-box;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+
+.tag-add-btn {
+  flex: 0 0 auto;
+  height: 80rpx;
+  padding: 0 28rpx;
+  display: flex;
+  align-items: center;
+  border-radius: var(--r-sm);
+  background-color: var(--accent);
+  color: #fff;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+/* 禁用态不用 opacity：白字压在半透明蓝上会看不见 */
+.tag-add-btn.is-off {
+  background-color: var(--surface-2);
+  color: var(--faint);
+}
+
+/* ---------------- 符号面板 ---------------- */
+.emoji-body {
+  width: 100%;
+  max-height: 52vh;
+  box-sizing: border-box;
+  padding: 0 var(--page-gutter);
+}
+
+.emoji-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  padding-bottom: calc(env(safe-area-inset-bottom) + 20rpx);
+}
+
+.emoji {
+  width: 84rpx;
+  height: 84rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 42rpx;
+  line-height: 1;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+}
+
+.emoji:active {
+  background-color: var(--bg-hover);
 }
 
 .ai-body {

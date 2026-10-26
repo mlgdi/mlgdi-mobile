@@ -28,6 +28,9 @@ export interface TocItem {
   id: string
 }
 
+/** 与后端 assets.py 的 VIDEO_EXT、Web 端 VIDEO_EXT_RE 保持同一份清单 */
+const VIDEO_EXT_RE = /\.(mp4|webm|m4v|mov|ogg)$/i
+
 export interface RenderResult {
   html: string
   toc: TocItem[]
@@ -86,10 +89,16 @@ md.inline.ruler.before('link', 'garden_embed', (state, silent) => {
 
   if (!silent) {
     const isImage = /\.(png|jpe?g|gif|webp|avif|svg)$/i.test(name)
+    const isVideo = VIDEO_EXT_RE.test(name)
     const token = state.push('html_inline', '', 0)
-    token.content = isImage
-      ? `<img class="md-img" src="${esc(assetUrl(`Assets/${name}`))}" alt="${esc(name)}" />`
-      : `<a class="garden-wikilink" data-wl="${esc(encodeURIComponent(name))}">${esc(name)}</a>`
+    if (isVideo) {
+      // 与 Web 端同一个约定：嵌入视频渲染成原生 video，不当作双链
+      token.content = `<video class="md-video" src="${esc(assetUrl(`Assets/${name}`))}" controls preload="metadata" playsinline></video>`
+    } else {
+      token.content = isImage
+        ? `<img class="md-img" src="${esc(assetUrl(`Assets/${name}`))}" alt="${esc(name)}" />`
+        : `<a class="garden-wikilink" data-wl="${esc(encodeURIComponent(name))}">${esc(name)}</a>`
+    }
   }
 
   state.pos = end + 2
@@ -154,6 +163,14 @@ md.renderer.rules.table_close = () => '</table>\n</div>\n'
 const defaultImage = md.renderer.rules.image
 md.renderer.rules.image = (tokens, idx, options, env, self) => {
   const token = tokens[idx]
+  const raw = token.attrGet('src') || ''
+
+  // `![](Assets/x.mp4)` 这种写法在 Web 上会渲染成 video，这里必须对齐，
+  // 否则同一篇笔记在两端一个是画面、一个是碎图图标。
+  if (VIDEO_EXT_RE.test(raw)) {
+    return `<video class="md-video" src="${esc(assetUrl(raw))}" controls preload="metadata" playsinline></video>`
+  }
+
   const srcIndex = token.attrIndex('src')
   if (srcIndex >= 0 && token.attrs) {
     token.attrs[srcIndex][1] = assetUrl(token.attrs[srcIndex][1])

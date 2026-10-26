@@ -800,7 +800,21 @@ onUnload(() => {
   margin: 2.4em 0;
 }
 
-.md :deep(img) {
+/* 视频：与图片同一套版式，但给 16:9 占位避免加载后整篇跳动 */
+.md :deep(video),
+.md :deep(.md-video) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 1.2em 0;
+  border-radius: var(--r-md);
+  background-color: #000;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+}
+
+.md :deep(img),
+.md :deep(.md-img) {
   max-width: 100%;
   height: auto;
   display: block;

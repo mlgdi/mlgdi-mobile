@@ -227,23 +227,43 @@ try {
   await page.waitForTimeout(2500)
   await page.locator('.uni-modal__btn_primary').last().click() // 去编辑
   await page.waitForTimeout(2500)
-  const inEdit = await page.locator('.editor').first().isVisible()
+  const inEdit = await page.locator('.paper-body').first().isVisible()
   log('整理成文 → 进入编辑器', inEdit)
   createdDocIds.push(new URL(page.url()).hash.split('id=')[1]?.split('&')[0] || '')
 
   // ---- 6. 编辑正文 + 发布（M4）----
   if (inEdit) {
-    await fillTextarea(page, '.editor', `${captureText}\n\n编辑追加：这段是冒烟写进去的。`)
+    await fillTextarea(page, '.paper-body', `${captureText}\n\n编辑追加：这段是冒烟写进去的。`)
     await page.waitForTimeout(400)
     log('编辑器记录改动', await page.locator('text=未保存').first().isVisible())
     await page.locator('.save-btn').click()
     await page.waitForTimeout(2000)
     log('保存正文', !(await page.locator('text=未保存').first().isVisible()))
-    log('编辑工具栏', (await page.locator('.tb').count()) >= 15)
+    log('编辑工具栏', (await page.locator('.tb').count()) >= 20)
+    log('工具栏双行', (await page.locator('.tools-row').count()) === 2)
+
+    // 标题现在是编辑区第一行（不再是顶栏里不可改的文字）
+    const titleInput = page.locator('.paper-title input').first()
+    log('标题可编辑', await titleInput.isVisible())
+    await titleInput.click()
+    await page.keyboard.press('End')
+    await page.keyboard.type('·冒烟')
+    await page.waitForTimeout(300)
+    const titleNow = await page.evaluate(
+      () => document.querySelector('.paper-title input')?.value || '',
+    )
+    log('标题改动生效', titleNow.endsWith('·冒烟'))
+
+    // 封面 / 标签面板能开（不校验上传：冒烟不该往 Assets 里塞文件）
+    await page.locator('.meta-btn').nth(0).click()
+    await page.waitForTimeout(600)
+    log('封面面板可开', (await page.locator('.ai-sheet.is-open').count()) > 0)
+    await page.locator('.ai-sheet.is-open .sheet-close').click()
+    await page.waitForTimeout(300)
     await page.locator('.tb-w').nth(1).click()
     await page.waitForTimeout(400)
     const editedVal = await page.evaluate(() => {
-      const el = document.querySelector('.editor textarea')
+      const el = document.querySelector('.paper-body textarea')
       return el ? el.value : ''
     })
     log('格式按钮生效', editedVal.includes('## '))
@@ -254,6 +274,12 @@ try {
     await confirmModal(page)
     await page.waitForTimeout(1800)
     log('发布', await page.locator('.meta-chip', { hasText: '已发布' }).first().isVisible())
+
+    // 最后再验返回：此时已保存干净，应当直接退出、不弹任何确认
+    await page.locator('.gtop .lead').click()
+    await page.waitForTimeout(2200)
+    const leftEdit = await page.evaluate(() => !location.hash.includes('/pages/edit/'))
+    log('编辑器返回可退出', leftEdit)
   }
 
   // ---- 7. 导入 .md 文件 ----
@@ -274,7 +300,7 @@ try {
   await page.waitForTimeout(3000)
   const importedDocId = new URL(page.url()).hash.split('id=')[1]?.split('&')[0] || ''
   if (importedDocId) createdDocIds.push(importedDocId)
-  log('导入后进入编辑器', Boolean(importedDocId) && (await page.locator('.editor').first().isVisible()))
+  log('导入后进入编辑器', Boolean(importedDocId) && (await page.locator('.paper-body').first().isVisible()))
 
   // ---- 8. 深色主题 ----
   await page.goto(`${APP}/#/pages/settings/index`, { waitUntil: 'networkidle' })

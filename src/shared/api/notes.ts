@@ -134,6 +134,12 @@ export interface MetaPatchPayload {
   template?: 'post' | 'stream' | 'booklet'
   tags?: string[]
   pinned?: boolean
+  /**
+   * 封面：vault 相对路径（`Assets/xxx.png`）或外链。
+   * 上传接口返回的 `path` 就是要存的值，**不是 `url`**——`url` 是资产端点的临时地址，
+   * 存进去将来换域名就全废了。
+   */
+  cover_image?: string
   base_version?: number
 }
 
