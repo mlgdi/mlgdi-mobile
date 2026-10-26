@@ -6,16 +6,15 @@ name: iOS unsigned IPA
 # Xcode 工程，`CODE_SIGNING_ALLOWED=NO` 编译出来的是**未签名 .app**，
 # 打成 Payload/*.ipa 后 TrollStore 可以直接装 —— 全程不需要 Apple 账号。
 #
-# 代价：产物不能上架 App Store、不能走 TestFlight；本产品只侧载到自己的手机，
-# 这两条都用不到。
+# 代价：产物不能上架 App Store / TestFlight。本产品只侧载到自己的手机，用不到。
 
 on:
   workflow_dispatch:
     inputs:
       sdk_asset:
-        description: 'SDK Release 资产名（须与 Release 里的文件名一致）'
+        description: 'SDK Release 资产名（与 Release 内文件名一致）'
         required: true
-        default: 'iOSSDK-5.26.zip'
+        default: 'SDK.zip'
       dcloud_appkey:
         description: 'DCloud 离线打包 AppKey（留空则用仓库 Secret）'
         required: false
@@ -29,7 +28,7 @@ concurrency:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v4
@@ -52,30 +51,42 @@ jobs:
       - name: 编译 App 资源
         run: npm run build:app
 
-      - name: 取离线 SDK（走 Release 附件，不进 git）
+      # SDK 约 700MB，不进 git。缓存命中后省一大截时间。
+      - name: 缓存离线 SDK
+        id: sdk-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/sdk
+          key: sdk-${{ inputs.sdk_asset || 'SDK.zip' }}-v1
+
+      - name: 取离线 SDK（Release 附件）
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ASSET: ${{ inputs.sdk_asset || 'SDK.zip' }}
         run: |
           mkdir -p /tmp/sdk
-          gh release download sdk \
-            --pattern "${{ inputs.sdk_asset }}" \
-            --dir /tmp/sdk \
-            --clobber
+          gh release download sdk --pattern "$ASSET" --dir /tmp/sdk --clobber
           ls -lh /tmp/sdk
-          echo "SDK_ZIP=/tmp/sdk/${{ inputs.sdk_asset }}" >> "$GITHUB_ENV"
 
       - name: 组装并编译（不签名）
         env:
+          SDK_ZIP: /tmp/sdk/${{ inputs.sdk_asset || 'SDK.zip' }}
           APPID: __UNI__1877F1B
           BUNDLE_ID: com.mlgdi.garden
+          APP_NAME: 渡己
           DCLOUD_APPKEY: ${{ inputs.dcloud_appkey || secrets.DCLOUD_APPKEY }}
           RES_DIR: dist/build/app
           OUT_DIR: ios-out
         run: |
+          # 版本号跟 package.json 走，避免两处漂移
+          export VERSION_NAME="$(node -p "require('./package.json').version")"
+          export VERSION_CODE="${{ github.run_number }}"
           chmod +x ci/assemble-ios.sh
           bash ci/assemble-ios.sh
 
       - uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: garden-unsigned-ipa
           path: ios-out/garden-unsigned.ipa
@@ -84,5 +95,14 @@ jobs:
       - name: 汇总
         if: always()
         run: |
-          echo "### 产物" >> "$GITHUB_STEP_SUMMARY"
-          ls -lh ios-out 2>/dev/null || echo "无产物（见上方日志）" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### 构建结果"
+            echo ""
+            if [ -f ios-out/garden-unsigned.ipa ]; then
+              echo "\`\`\`"
+              ls -lh ios-out/garden-unsigned.ipa
+              echo "\`\`\`"
+            else
+              echo "❌ 无产物，见上方日志（`assemble-ios.sh` 失败时会打印 SDK 目录树）"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
