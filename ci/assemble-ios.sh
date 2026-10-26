@@ -56,7 +56,7 @@ sedi() {
 rm -rf "$WORK" "$OUT_DIR"
 mkdir -p "$WORK" "$OUT_DIR"
 
-log "1/8 解压离线 SDK"
+log "1/9 解压离线 SDK"
 unzip -q "$SDK_ZIP" -d "$WORK/sdk"
 # zip 里带 macOS 元数据：__MACOSX 下有同名目录（AppleDouble），
 # 不删掉的话 find 会先命中 __MACOSX/SDK/HBuilder-Hello 这个假目录，后续全错（实测踩过）
@@ -75,7 +75,7 @@ PBXPROJ="$HELLO/HBuilder-Hello.xcodeproj/project.pbxproj"
 [ -f "$PLIST" ] || dump_and_die "未找到 $PLIST"
 [ -f "$PBXPROJ" ] || dump_and_die "未找到 project.pbxproj"
 
-log "2/8 放入 uni-app 资源"
+log "2/9 放入 uni-app 资源"
 # 清掉 SDK 自带的示例 app，只留我们的
 rm -rf "$APP_TARGET"/Pandora/apps/__UNI__*
 APPS_DIR="$APP_TARGET/Pandora/apps/$APPID"
@@ -85,7 +85,7 @@ cp -R "$RES_DIR" "$APPS_DIR/www"
 [ -f "$APPS_DIR/www/app-service.js" ] || dump_and_die "资源里没有 app-service.js，检查 RES_DIR 是否指向 dist/build/app"
 echo "资源: $(du -sh "$APPS_DIR/www" | cut -f1)"
 
-log "3/8 登记 appid / 版本（control.xml）"
+log "3/9 登记 appid / 版本（control.xml）"
 if [ -f "$CONTROL" ]; then
   cat > "$CONTROL" <<XML
 <?xml version="1.0" encoding="utf-8"?>
@@ -100,7 +100,7 @@ else
   echo "⚠️ 无 control.xml（新版 SDK 可能不再需要），跳过"
 fi
 
-log "4/8 写 Bundle ID"
+log "4/9 写 Bundle ID"
 # 只改主 App target 的 io.dcloud.HBuilder；另一个 target（com.dcloud.XXX）是插件示例，不动
 BEFORE=$(grep -c "io.dcloud.HBuilder" "$PBXPROJ" || true)
 sedi "s/io\.dcloud\.HBuilder/$BUNDLE_ID/g" "$PBXPROJ"
@@ -108,7 +108,7 @@ sedi "s/io\.dcloud\.HBuilder/$BUNDLE_ID/g" "$PBXPROJ"
 # 所以这里一律用 ${} 包住
 echo "替换 io.dcloud.HBuilder → ${BUNDLE_ID}（共 ${BEFORE} 处）"
 
-log "5/8 写 AppKey / 显示名 / 版本（Info.plist）"
+log "5/9 写 AppKey / 显示名 / 版本（Info.plist）"
 plist_set() {
   local key="$1" value="$2" type="${3:-string}"
   /usr/libexec/PlistBuddy -c "Delete :$key" "$PLIST" >/dev/null 2>&1 || true
@@ -122,7 +122,41 @@ else
 fi
 plist_set CFBundleDisplayName "$APP_NAME"
 
-log "6/8 生成共享 Scheme"
+log "6/9 图标与本地化名称"
+# 图标：SDK 的 AppIcon.appiconset 是**空目录**，ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon
+# 指过去也拿不到图，桌面就显示白图标。图标是构建输入，随仓库一起走。
+ASSET_DIR="$HELLO/HBuilder/Images.xcassets/AppIcon.appiconset"
+mkdir -p "$ASSET_DIR"
+rm -f "$ASSET_DIR"/*.png "$ASSET_DIR"/Contents.json
+cp ci/appicon/AppIcon.appiconset/* "$ASSET_DIR"/
+echo "图标集: $(ls "$ASSET_DIR" | wc -l) 个文件"
+
+# 旧式 icon/ 目录：模板里若有脚本按文件名取图，一并覆盖
+if [ -d "$APP_TARGET/icon" ]; then
+  cp ci/appicon/legacy/icon*.png "$APP_TARGET/icon/" 2>/dev/null || echo "⚠️ legacy 图标未复制"
+fi
+
+# 名称：*.lproj/InfoPlist.strings 会盖掉 Info.plist 的 CFBundleDisplayName，
+# SDK 模板里写的是「HBuilder Hello / HBuilder 你好」——只改 plist 不够。
+python3 - "$APP_TARGET" "$APP_NAME" <<'PY'
+import sys
+from pathlib import Path
+
+target, name = Path(sys.argv[1]), sys.argv[2]
+body = (
+    "/* Localized versions of Info.plist keys */\n"
+    f'CFBundleDisplayName="{name}";\n'
+    f'CFBundleName="{name}";\n'
+)
+count = 0
+for p in target.glob("*.lproj/InfoPlist.strings"):
+    # 原文就是 UTF-8（不是 UTF-16），保持同编码最稳
+    p.write_text(body, encoding="utf-8")
+    count += 1
+print(f"本地化名称已写入 {count} 个 lproj")
+PY
+
+log "7/9 生成共享 Scheme"
 # SDK 自带的 xcodeproj 没有 shared scheme，CI 上没法用 Xcode GUI 生成，
 # 所以从 pbxproj 里解析出 HBuilder target 的 BlueprintIdentifier 后写一份。
 # 用 python3 而不是 grep：pbxproj 里同名 target 有多处引用，
@@ -142,7 +176,7 @@ mkdir -p "$SCHEME_DIR"
 sed "s/__TARGET_ID__/$TARGET_ID/g" ci/HBuilder.xcscheme > "$SCHEME_DIR/HBuilder.xcscheme"
 echo "scheme: $SCHEME_DIR/HBuilder.xcscheme"
 
-log "7/8 pod install"
+log "8/9 pod install"
 cd "$HELLO"
 if [ -f Podfile ]; then
   # 裁模块：SDK 默认把二十多个模块全带上，其中 Geolocation-Tencent 是 UTS 版
@@ -179,7 +213,7 @@ else
 fi
 cd - >/dev/null
 
-log "8/8 编译（不签名）"
+log "9/9 编译（不签名）"
 xcodebuild \
   -workspace "$HELLO/HBuilder-Hello.xcworkspace" \
   -scheme HBuilder \
