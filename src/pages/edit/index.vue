@@ -351,6 +351,8 @@ const visibility = ref<'private' | 'member' | 'public'>('public')
 const loading = ref(true)
 const saving = ref(false)
 const preview = ref(false)
+/** 最近一次保存失败的原因，返回时用它把话说清（否则只剩一句「没能保存」） */
+const saveError = ref('')
 
 /** 打开时的属性快照，用来判断元数据有没有改过 */
 const initStatus = ref<string>('draft')
@@ -482,7 +484,8 @@ async function back(): Promise<void> {
   }
   uni.showModal({
     title: '没能保存',
-    content: '改动还没写进 vault。要放弃这些改动退出吗？',
+    // 把具体原因说出来：只写「没能保存」，用户不知道该改哪
+    content: `${saveError.value || '改动还没写进 vault'}。要放弃这些改动退出吗？`,
     confirmText: '放弃退出',
     cancelText: '继续编辑',
     success: (res) => {
@@ -580,7 +583,8 @@ async function saveAll(opts: { silent?: boolean } = {}): Promise<boolean> {
   // 标题是 front-matter 的指纹，空标题落盘后列表里就是一格空白
   const nextTitle = title.value.trim()
   if (!nextTitle) {
-    uni.showToast({ title: '标题不能为空', icon: 'none' })
+    saveError.value = '标题不能为空'
+    if (!opts.silent) uni.showToast({ title: '标题不能为空', icon: 'none' })
     return false
   }
 
@@ -617,7 +621,8 @@ async function saveAll(opts: { silent?: boolean } = {}): Promise<boolean> {
     if (!opts.silent) uni.showToast({ title: '已保存', icon: 'none' })
     return true
   } catch (err: any) {
-    if (!handleConflict(err)) uni.showToast({ title: err?.reason || '保存失败', icon: 'none' })
+    saveError.value = err?.reason || '保存失败'
+    if (!handleConflict(err)) uni.showToast({ title: saveError.value, icon: 'none' })
     return false
   } finally {
     saving.value = false
