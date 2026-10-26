@@ -58,13 +58,6 @@ const coverSrc = computed(() => assetUrl(props.doc.cover_image || ''))
 
 <template>
   <view class="doc" @click="emit('open', doc)">
-    <image
-      v-if="coverSrc"
-      class="doc-cover"
-      :src="coverSrc"
-      mode="aspectFill"
-      :lazy-load="true"
-    />
     <view class="doc-main">
       <view class="doc-head">
         <text class="doc-title">{{ doc.title }}</text>
@@ -81,6 +74,13 @@ const coverSrc = computed(() => assetUrl(props.doc.cover_image || ''))
         </template>
       </view>
     </view>
+    <image
+      v-if="coverSrc"
+      class="doc-cover"
+      :src="coverSrc"
+      mode="aspectFill"
+      :lazy-load="true"
+    />
   </view>
 </template>
 
@@ -97,11 +97,12 @@ const coverSrc = computed(() => assetUrl(props.doc.cover_image || ''))
   opacity: 0.6;
 }
 
-/* 封面缩略图：4:3 小图放左侧。image 必须显式宽高（uni 不会按比例撑） */
+/* 封面缩略图：4:3 小图放右侧（用户指定）。image 必须显式宽高（uni 不会按比例撑） */
 .doc-cover {
   flex: 0 0 auto;
   width: 168rpx;
   height: 126rpx;
+  margin-left: 4rpx;
   border-radius: var(--r-sm);
   background-color: var(--surface-2);
 }
