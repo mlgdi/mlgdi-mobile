@@ -48,6 +48,23 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
+      # 版本号只认 package.json 一处。resource 侧（manifest.json）和原生侧
+      # （Info.plist / MARKETING_VERSION）都从这里派生，避免三处漂移——
+      # 曾经出现 Info.plist 是 0.2.2、包内资源却是 0.2.0 的情况。
+      - name: 同步版本号
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          BUILD="${{ github.run_number }}"
+          node -e "
+            const fs=require('fs');const p='src/manifest.json';
+            const m=JSON.parse(fs.readFileSync(p,'utf8'));
+            m.versionName=process.argv[1];m.versionCode=process.argv[2];
+            fs.writeFileSync(p,JSON.stringify(m,null,4)+'\n');
+          " "$VERSION" "$BUILD"
+          echo "VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=$BUILD" >> "$GITHUB_ENV"
+          grep -E '"version(Name|Code)"' src/manifest.json
+
       - name: 编译 App 资源
         run: npm run build:app
 
@@ -79,9 +96,6 @@ jobs:
           RES_DIR: dist/build/app
           OUT_DIR: ios-out
         run: |
-          # 版本号跟 package.json 走，避免两处漂移
-          export VERSION_NAME="$(node -p "require('./package.json').version")"
-          export VERSION_CODE="${{ github.run_number }}"
           chmod +x ci/assemble-ios.sh
           bash ci/assemble-ios.sh
 
