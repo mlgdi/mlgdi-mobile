@@ -58,7 +58,12 @@ mkdir -p "$WORK" "$OUT_DIR"
 
 log "1/8 解压离线 SDK"
 unzip -q "$SDK_ZIP" -d "$WORK/sdk"
-HELLO=$(find "$WORK/sdk" -maxdepth 3 -type d -name "HBuilder-Hello" | head -1 || true)
+# zip 里带 macOS 元数据：__MACOSX 下有同名目录（AppleDouble），
+# 不删掉的话 find 会先命中 __MACOSX/SDK/HBuilder-Hello 这个假目录，后续全错（实测踩过）
+rm -rf "$WORK/sdk/__MACOSX"
+find "$WORK/sdk" -name ".DS_Store" -delete 2>/dev/null || true
+
+HELLO=$(find "$WORK/sdk" -maxdepth 4 -type d -name "HBuilder-Hello" -not -path "*__MACOSX*" | head -1 || true)
 [ -n "$HELLO" ] || dump_and_die "SDK 内未找到 HBuilder-Hello"
 echo "工程根: $HELLO"
 
