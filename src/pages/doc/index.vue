@@ -2,10 +2,14 @@
   <view :class="['page', `theme-${resolvedTheme}`]">
     <GTopBar back :title="scrolled ? doc?.title || '阅读' : ''" :elevated="scrolled" @back="back">
       <template #actions>
-        <view v-if="toc.length > 1" class="icon-btn" @click="openToc">
+        <!-- Aa 是唯一允许的「文字图标」：字号设置的标准符号，SVG 画出来反而不好认 -->
+        <view class="icon-btn aa" @click.stop="toggleFont">
+          <text class="aa-text">Aa</text>
+        </view>
+        <view v-if="toc.length > 1" class="icon-btn toc-btn" @click="openToc">
           <GIcon name="list" :size="38" />
         </view>
-        <view v-if="canEdit && doc" class="icon-btn" @click="toEdit">
+        <view v-if="canEdit && doc" class="icon-btn edit-btn" @click="toEdit">
           <GIcon name="pencil" :size="36" />
         </view>
       </template>
@@ -14,6 +18,27 @@
     <!-- 阅读进度：2rpx 细线，用栏目色，不抢视觉 -->
     <view v-if="doc && progress > 0" class="progress">
       <view class="progress-bar" :style="{ width: progress + '%', background: colMain }" />
+    </view>
+
+    <!-- 字号浮层：顶栏下方右对齐，点任意处关闭 -->
+    <view v-if="fontOpen" class="pop-mask" @click="fontOpen = false" />
+    <view v-if="fontOpen" class="font-pop">
+      <view class="font-row">
+        <text class="font-label">正文字号</text>
+        <text class="font-now">{{ FONT_SIZES[fontSize].label }}</text>
+      </view>
+      <view class="font-opts">
+        <view
+          v-for="opt in FONT_OPTIONS"
+          :key="opt.key"
+          :class="['font-opt', { 'is-on': fontSize === opt.key }]"
+          @click="setFont(opt.key)"
+        >
+          <text class="font-opt-a" :style="{ fontSize: opt.preview }">A</text>
+          <text class="font-opt-l">{{ opt.label }}</text>
+        </view>
+      </view>
+      <text class="font-tip">只影响正文，标题与界面文字不变</text>
     </view>
 
     <view v-if="loading" class="hint">
@@ -25,7 +50,7 @@
       <button class="btn btn-ghost retry" @click="load">重试</button>
     </view>
 
-    <view v-else-if="doc" class="article">
+    <view v-else-if="doc" class="article" :style="{ '--read-fs': FONT_SIZES[fontSize].value }">
       <text class="a-title">{{ doc.title }}</text>
 
       <view class="a-meta">
@@ -47,7 +72,7 @@
 
       <view class="a-rule" />
 
-      <view class="md" @click="onBodyTap">
+      <view class="md">
         <view class="md-inner" v-html="html"></view>
       </view>
 
@@ -95,11 +120,22 @@
 
     <!-- 目录：底部抽屉。手机上侧栏目录会挤掉正文，抽屉才是常见解 -->
     <view v-if="tocOpen" class="mask" @click="closeToc" />
-    <view :class="['sheet', { 'is-open': tocOpen }]">
-      <view class="sheet-grip" />
-      <view class="sheet-head">
-        <text class="sheet-title">目录</text>
-        <text class="sheet-count">{{ toc.length }} 节</text>
+    <view
+      :class="['sheet', { 'is-open': tocOpen, 'is-dragging': dragOffset > 0 }]"
+      :style="dragOffset ? { transform: `translateY(${dragOffset}px)` } : undefined"
+    >
+      <view
+        class="sheet-drag"
+        @touchstart="onDragStart"
+        @touchmove.stop.prevent="onDragMove"
+        @touchend="onDragEnd"
+        @touchcancel="onDragEnd"
+      >
+        <view class="sheet-grip" />
+        <view class="sheet-head">
+          <text class="sheet-title">目录</text>
+          <text class="sheet-count">{{ toc.length }} 节</text>
+        </view>
       </view>
       <scroll-view class="sheet-body" scroll-y :show-scrollbar="false">
         <view
@@ -118,7 +154,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
-import { onLoad, onPageScroll } from '@dcloudio/uni-app'
+import { onLoad, onPageScroll, onUnload } from '@dcloudio/uni-app'
 import GTopBar from '../../shared/components/GTopBar.vue'
 import GIcon from '../../shared/components/GIcon.vue'
 import { doc as apiDoc, type DocDetail } from '../../shared/api/notes'
@@ -137,6 +173,37 @@ const toc = ref<TocItem[]>([])
 const loading = ref(true)
 const error = ref('')
 const docId = ref('')
+
+/* ---------------- 正文字号 ----------------
+   四档，只作用于正文（`.md`），不动标题与界面文字：
+   标题已是 44rpx，跟着放大到最大档会占掉半屏。 */
+type FontKey = 'sm' | 'md' | 'lg' | 'xl'
+const FONT_ORDER: FontKey[] = ['sm', 'md', 'lg', 'xl']
+const FONT_SIZES: Record<FontKey, { label: string; value: string; preview: string }> = {
+  sm: { label: '小', value: '30rpx', preview: '22rpx' },
+  md: { label: '标准', value: '34rpx', preview: '28rpx' },
+  lg: { label: '大', value: '38rpx', preview: '34rpx' },
+  xl: { label: '特大', value: '42rpx', preview: '40rpx' },
+}
+const FONT_OPTIONS = FONT_ORDER.map((key) => ({ key, ...FONT_SIZES[key] }))
+
+const FONT_KEY = 'garden.reader.fs'
+
+function readFont(): FontKey {
+  try {
+    const raw = String(uni.getStorageSync(FONT_KEY) || '')
+    return FONT_ORDER.includes(raw as FontKey) ? (raw as FontKey) : 'md'
+  } catch {
+    return 'md'
+  }
+}
+
+const fontSize = ref<FontKey>(readFont())
+const fontOpen = ref(false)
+/** 代码块原文，复制按钮按 data-code 下标取 */
+const codeBlocks = ref<string[]>([])
+/** 已绑定原生点击监听的容器，避免重复绑 */
+let boundEl: HTMLElement | null = null
 
 const scrolled = ref(false)
 const progress = ref(0)
@@ -214,16 +281,21 @@ async function load(): Promise<void> {
     const result = renderMarkdown(detail.body || '')
     html.value = result.html
     toc.value = result.toc
+    codeBlocks.value = result.codes || []
     uni.setNavigationBarTitle?.({ title: detail.title || '文档' })
-    await nextTick()
-    // 图片会改变布局，量两次：一次立即，一次等图片落位
-    setTimeout(measure, 120)
-    setTimeout(measure, 700)
   } catch (err: any) {
     error.value = err?.reason || err?.message || '打开失败'
   } finally {
     loading.value = false
   }
+
+  // 必须在 loading 关掉之后再做：`.md` 挂在 v-else-if="doc" 上，
+  // loading 为 true 时它还没进 DOM，绑定会静默失败（踩过）
+  await nextTick()
+  bindBodyTap()
+  // 图片会改变布局，量两次：一次立即，一次等图片落位
+  setTimeout(measure, 120)
+  setTimeout(measure, 700)
 }
 
 /** 量出每个标题相对文档的纵向位置 */
@@ -255,12 +327,62 @@ function openDoc(id: string): void {
   uni.navigateTo({ url: `/pages/doc/index?id=${encodeURIComponent(id)}` })
 }
 
+function toggleFont(): void {
+  fontOpen.value = !fontOpen.value
+}
+
+function setFont(key: FontKey): void {
+  fontSize.value = key
+  try {
+    uni.setStorageSync(FONT_KEY, key)
+  } catch {
+    /* 存不进也不影响本次阅读 */
+  }
+  fontOpen.value = false
+  // 字号变了整篇高度都变，目录位置必须重量
+  void nextTick().then(() => {
+    setTimeout(measure, 120)
+    setTimeout(measure, 600)
+  })
+}
+
 function openToc(): void {
   tocOpen.value = true
 }
 
 function closeToc(): void {
   tocOpen.value = false
+  dragOffset.value = 0
+}
+
+/* ---------------- 抽屉下拉关闭 ----------------
+   只绑在头部（手柄 + 标题行）：绑整个抽屉会和内部的 scroll-view 抢手势。
+   阈值 90px ≈ 屏高 1/9，比「拖一点点就关」稳，也比「必须拖到底」省力。 */
+const dragOffset = ref(0)
+let dragStartY = 0
+let dragging = false
+
+function onDragStart(e: any): void {
+  if (!tocOpen.value) return
+  dragging = true
+  dragStartY = e?.touches?.[0]?.clientY ?? 0
+  dragOffset.value = 0
+}
+
+function onDragMove(e: any): void {
+  if (!dragging) return
+  const y = e?.touches?.[0]?.clientY ?? 0
+  const dy = y - dragStartY
+  // 往下跟手；往上给强阻尼——抽屉本来就已经在底部，往上拖没有意义
+  dragOffset.value = dy > 0 ? dy : Math.max(-16, dy * 0.25)
+}
+
+function onDragEnd(): void {
+  if (!dragging) return
+  dragging = false
+  const shouldClose = dragOffset.value > 90
+  dragOffset.value = 0
+  if (shouldClose) closeToc()
 }
 
 /**
@@ -300,44 +422,70 @@ onPageScroll((e) => {
   if (current && current !== activeId.value) activeId.value = current
 })
 
+/** 复制代码块。改按钮文字只在真 DOM 上做，App 端靠 toast 提示 */
+function copyCode(index: number, el?: any): void {
+  const text = codeBlocks.value[index] || ''
+  if (!text) return
+  uni.setClipboardData({
+    data: text,
+    success: () => {
+      uni.showToast({ title: '代码已复制', icon: 'none' })
+      try {
+        if (el && typeof el.textContent === 'string') {
+          const prev = el.textContent
+          el.textContent = '已复制'
+          setTimeout(() => {
+            el.textContent = prev
+          }, 1200)
+        }
+      } catch {
+        /* 非真 DOM 就算了 */
+      }
+    },
+  })
+}
+
 /**
- * 正文点击统一委托。
+ * 正文点击：**绑原生 DOM 事件**，不用模板的 `@click`。
  *
- * H5 里 target 是原生节点，用 closest 精确命中；App 端 uni 只给 dataset，
- * 所以链接内部不能有嵌套元素（渲染时就保证是纯文本），dataset 才落在 target 上。
+ * 为什么：uni 在 H5/App 里传给 `@click` 的 `e.target` 是它自己的包装对象
+ * （`{ id, dataset, ... }`），不是真实 DOM 节点——`tagName` 为空、`closest`
+ * 不存在，`v-html` 里生成的双链/代码复制按钮全都点不动（实测过）。
+ * 直接给 `.md` 元素 addEventListener，`e.target` 就是真节点。
  */
-function onBodyTap(e: any): void {
-  const target = e?.target
+function bindBodyTap(): void {
+  if (typeof document === 'undefined') return
+  const el = document.querySelector('.md') as HTMLElement | null
+  if (!el || el === boundEl) return
+  if (boundEl) boundEl.removeEventListener('click', onBodyTap as EventListener)
+  boundEl = el
+  el.addEventListener('click', onBodyTap as EventListener)
+}
 
-  if (target && typeof target.closest === 'function') {
-    const wl = target.closest('[data-wl]') as HTMLElement | null
-    if (wl?.dataset.wl) {
-      void openWikilink(decodeURIComponent(wl.dataset.wl))
-      return
-    }
-    const ext = target.closest('[data-ext]') as HTMLElement | null
-    if (ext?.dataset.ext) {
-      copyLink(ext.dataset.ext)
-      return
-    }
-    const img = target.closest('.md-img') as HTMLImageElement | null
-    if (img?.src) {
-      previewImage(img.src)
-      return
-    }
+function onBodyTap(e: Event): void {
+  const target = e.target as HTMLElement | null
+  if (!target || typeof target.closest !== 'function') return
+
+  const copyBtn = target.closest('[data-code]') as HTMLElement | null
+  if (copyBtn) {
+    copyCode(Number(copyBtn.dataset.code), copyBtn)
     return
   }
 
-  const ds = (target?.dataset || {}) as Record<string, string>
-  if (ds.wl) {
-    void openWikilink(decodeURIComponent(ds.wl))
+  const wl = target.closest('[data-wl]') as HTMLElement | null
+  if (wl?.dataset.wl) {
+    void openWikilink(decodeURIComponent(wl.dataset.wl))
     return
   }
-  if (ds.ext) {
-    copyLink(ds.ext)
+
+  const ext = target.closest('[data-ext]') as HTMLElement | null
+  if (ext?.dataset.ext) {
+    copyLink(ext.dataset.ext)
     return
   }
-  if (ds.img) previewImage(ds.img)
+
+  const img = target.closest('.md-img') as HTMLImageElement | null
+  if (img?.src) previewImage(img.src)
 }
 
 async function openWikilink(title: string): Promise<void> {
@@ -372,6 +520,13 @@ onLoad((options: any) => {
   docId.value = String((options && options.id) || '')
   load()
 })
+
+onUnload(() => {
+  if (boundEl) {
+    boundEl.removeEventListener('click', onBodyTap as EventListener)
+    boundEl = null
+  }
+})
 </script>
 
 <style scoped>
@@ -390,6 +545,122 @@ onLoad((options: any) => {
 .progress-bar {
   height: 100%;
   transition: width 120ms linear;
+}
+
+/* ---------------- Aa（字号入口） ---------------- */
+.aa {
+  /* 文字图标：比同尺寸 SVG 视觉重量略轻，单独调字号 */
+  width: 76rpx;
+}
+
+.aa-text {
+  font-size: 30rpx;
+  font-weight: 700;
+  letter-spacing: -0.4rpx;
+  color: var(--text-2);
+  line-height: 1;
+}
+
+/* ---------------- 字号浮层 ---------------- */
+.pop-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 77;
+  /* 极淡遮罩：不给底的话，被压住的标题和面板糊成一片 */
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+.font-pop {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 96rpx);
+  right: 24rpx;
+  z-index: 78;
+  width: 520rpx;
+  padding: 24rpx;
+  background-color: var(--surface);
+  border: 1rpx solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-lg);
+}
+
+/* 指向 Aa 的小三角 */
+.font-pop::before {
+  content: '';
+  position: absolute;
+  top: -12rpx;
+  /* 对准 Aa 中心：从右数 编辑 88 + 目录 88 + Aa 半宽 38 = 214rpx，
+     卡片本身 right 24rpx，所以三角距卡片右缘 214 − 24 = 190rpx */
+  right: 237rpx;
+  width: 22rpx;
+  height: 22rpx;
+  background-color: var(--surface);
+  border-left: 1rpx solid var(--line);
+  border-top: 1rpx solid var(--line);
+  transform: rotate(45deg);
+}
+
+.font-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.font-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.font-now {
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+}
+
+.font-opts {
+  display: flex;
+  gap: 12rpx;
+}
+
+.font-opt {
+  flex: 1 1 0;
+  height: 104rpx;
+  border-radius: var(--r-sm);
+  border: 1rpx solid var(--line);
+  background-color: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6rpx;
+}
+
+.font-opt-a {
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text-2);
+}
+
+.font-opt-l {
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+}
+
+.font-opt.is-on {
+  background-color: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.font-opt.is-on .font-opt-a,
+.font-opt.is-on .font-opt-l {
+  color: var(--accent);
+}
+
+.font-tip {
+  display: block;
+  margin-top: 18rpx;
+  font-size: var(--fs-2xs);
+  color: var(--faint);
 }
 
 /* ---------------- 头部 ---------------- */
@@ -444,7 +715,8 @@ onLoad((options: any) => {
    手机行长只有 40 字左右，19pt 会让折行太密；17pt 是 iOS 正文档位。
    标题用 em 而非固定 rpx：这样改正文基准字号时，整条阶梯自动跟随。 */
 .md {
-  font-size: var(--fs-base);
+  /* 字号由「Aa」控制，回落到全局正文基准 */
+  font-size: var(--read-fs, var(--fs-base));
   line-height: 1.78;
   letter-spacing: 0.01em;
   color: var(--text);
@@ -545,7 +817,7 @@ onLoad((options: any) => {
 
 .md :deep(table) {
   border-collapse: collapse;
-  width: 100%;
+  min-width: 100%;
   font-size: 0.93em;
 }
 
@@ -554,12 +826,26 @@ onLoad((options: any) => {
   border: 1rpx solid var(--line);
   padding: 14rpx 18rpx;
   text-align: left;
-  white-space: nowrap;
 }
 
+/* 表头不换行（列宽由它定，多列时自然超过屏宽 → 外层横向滚动）；
+   单元格允许换行：中文表格内容都很短，硬 nowrap 会在大字号下把字切出屏外 */
 .md :deep(th) {
   background-color: var(--surface-2);
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.md :deep(td) {
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* 首列给个下限：auto layout 下中文可以逐字断行，浏览器会把首列压到
+   刚好等于表头宽度，「20 个以上」这种 5 字内容就会被拆成 4+1 */
+.md :deep(th:first-child),
+.md :deep(td:first-child) {
+  min-width: 200rpx;
 }
 
 /* 行内 code；代码块里的 code 由下面单独重置 */
@@ -573,6 +859,54 @@ onLoad((options: any) => {
   color: var(--text);
 }
 
+/* 代码块：外壳负责边框圆角，pre 只负责滚动。
+   这样顶部的语言标签与复制按钮才能和代码贴在同一张卡片里。 */
+.md :deep(.md-code) {
+  margin: 1.2em 0;
+  background-color: var(--surface-2);
+  border: 1rpx solid var(--line);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+}
+
+.md :deep(.md-code-head) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8rpx 20rpx;
+  border-bottom: 1rpx solid var(--line);
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+}
+
+.md :deep(.md-code-lang) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.4rpx;
+}
+
+.md :deep(.md-code-copy) {
+  color: var(--muted);
+  padding: 4rpx 14rpx;
+  border-radius: 8rpx;
+  background-color: var(--bg);
+}
+
+.md :deep(.md-code-copy:active) {
+  background-color: var(--bg-hover);
+  color: var(--accent);
+}
+
+.md :deep(.md-code > pre) {
+  margin: 0;
+  padding: 20rpx 22rpx;
+  background-color: transparent;
+  border: 0;
+  border-radius: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 兜底：没有 fence 包裹的裸 pre */
 .md :deep(pre) {
   margin: 1.2em 0;
   padding: 22rpx 24rpx;
@@ -760,6 +1094,16 @@ onLoad((options: any) => {
 
 .sheet.is-open {
   transform: translateY(0);
+}
+
+.sheet-drag {
+  /* 手势只在这个区域生效，避免和内部 scroll-view 抢 */
+  padding-bottom: 4rpx;
+  touch-action: none;
+}
+
+.sheet.is-dragging {
+  transition: none;
 }
 
 .sheet-grip {

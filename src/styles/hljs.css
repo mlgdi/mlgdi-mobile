@@ -1,0 +1,127 @@
+/* ===========================================================
+   highlight.js · VSCode 配色（移动端）
+   来源：app/frontend/src/styles/hljs-vscode.css
+   只改了选择器前缀：Web 用 [data-theme='dark']，移动端用 .theme-light / .theme-dark
+   只覆盖 token 颜色，背景/字号交给 .md 的代码块样式。
+   =========================================================== */
+
+.hljs {
+  background: transparent;
+  color: inherit;
+}
+
+/* —— 明色（Light+） —— */
+
+.theme-light .hljs-keyword,
+.theme-light .hljs-selector-tag,
+.theme-light .hljs-literal,
+.theme-light .hljs-doctag {
+  color: #0000ff;
+}
+.theme-light .hljs-string {
+  color: #a31515;
+}
+.theme-light .hljs-regexp {
+  color: #811453;
+}
+.theme-light .hljs-number,
+.theme-light .hljs-symbol {
+  color: #098658;
+}
+.theme-light .hljs-comment,
+.theme-light .hljs-quote {
+  color: #008000;
+  font-style: italic;
+}
+.theme-light .hljs-title,
+.theme-light .hljs-title.function_ {
+  color: #795e26;
+}
+.theme-light .hljs-title.class_,
+.theme-light .hljs-type,
+.theme-light .hljs-built_in,
+.theme-light .hljs-builtin-name {
+  color: #267f99;
+}
+.theme-light .hljs-attr,
+.theme-light .hljs-attribute,
+.theme-light .hljs-variable,
+.theme-light .hljs-template-variable,
+.theme-light .hljs-params {
+  color: #001080;
+}
+.theme-light .hljs-meta,
+.theme-light .hljs-selector-attr,
+.theme-light .hljs-selector-class,
+.theme-light .hljs-selector-id {
+  color: #001080;
+}
+.theme-light .hljs-section,
+.theme-light .hljs-name,
+.theme-light .hljs-tag {
+  color: #800000;
+}
+.theme-light .hljs-deletion {
+  color: #a31515;
+}
+.theme-light .hljs-addition {
+  color: #098658;
+}
+
+/* —— 暗色（Dark+） —— */
+.theme-dark .hljs-keyword,
+.theme-dark .hljs-selector-tag,
+.theme-dark .hljs-literal,
+.theme-dark .hljs-doctag {
+  color: #569cd6;
+}
+.theme-dark .hljs-string {
+  color: #ce9178;
+}
+.theme-dark .hljs-regexp {
+  color: #d16969;
+}
+.theme-dark .hljs-number,
+.theme-dark .hljs-symbol {
+  color: #b5cea8;
+}
+.theme-dark .hljs-comment,
+.theme-dark .hljs-quote {
+  color: #6a9955;
+  font-style: italic;
+}
+.theme-dark .hljs-title,
+.theme-dark .hljs-title.function_ {
+  color: #dcdcaa;
+}
+.theme-dark .hljs-title.class_,
+.theme-dark .hljs-type,
+.theme-dark .hljs-built_in,
+.theme-dark .hljs-builtin-name {
+  color: #4ec9b0;
+}
+.theme-dark .hljs-attr,
+.theme-dark .hljs-attribute,
+.theme-dark .hljs-variable,
+.theme-dark .hljs-template-variable,
+.theme-dark .hljs-params,
+.theme-dark .hljs-property {
+  color: #9cdcfe;
+}
+.theme-dark .hljs-meta,
+.theme-dark .hljs-selector-attr,
+.theme-dark .hljs-selector-class,
+.theme-dark .hljs-selector-id {
+  color: #9cdcfe;
+}
+.theme-dark .hljs-section,
+.theme-dark .hljs-name,
+.theme-dark .hljs-tag {
+  color: #569cd6;
+}
+.theme-dark .hljs-deletion {
+  color: #d16969;
+}
+.theme-dark .hljs-addition {
+  color: #6a9955;
+}

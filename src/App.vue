@@ -13,6 +13,8 @@ onShow(() => {
 </script>
 
 <style>
+/* highlight.js token 配色（从 Web 的 hljs-vscode.css 转换，只改选择器前缀） */
+@import './styles/hljs.css';
 /* ---------------------------------------------------------------------------
    设计 Token：与网页版 `.app/frontend/src/styles/tokens.css` 同源。
    差异只有单位——这里全部用 rpx（750 画板），网页用 px。改色时两边一起改。

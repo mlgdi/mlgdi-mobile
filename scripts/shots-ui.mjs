@@ -64,8 +64,8 @@ if ((await page.locator('.doc').count()) > 0) {
   await page.screenshot({ path: 'shots/22-doc-backlink.png' })
   await page.evaluate(() => window.scrollTo(0, 300))
   await page.waitForTimeout(400)
-  if ((await page.locator('.gtop .icon-btn').count()) > 0) {
-    await page.locator('.gtop .icon-btn').first().click()
+  if ((await page.locator('.toc-btn').count()) > 0) {
+    await page.locator('.toc-btn').click()
     await page.waitForTimeout(600)
     await page.screenshot({ path: 'shots/23-doc-toc.png' })
     await page.locator('.mask').click()

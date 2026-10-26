@@ -170,14 +170,37 @@ try {
     log('文章页渲染', await page.locator('.a-title').first().isVisible())
     // 正文排版与目录：v-html 路径一旦被改回富文本组件，这两条会先红
     log('正文有标题层级', (await page.locator('.md-inner h1, .md-inner h2, .md-inner h3').count()) > 0)
-    if ((await page.locator('.gtop .icon-btn').count()) > 0) {
-      await page.locator('.gtop .icon-btn').first().click()
+
+    // 代码高亮：有 fence 的文档才断言，避免拿碎片当样本时误报
+    const codeBlocks = await page.locator('.md-code').count()
+    if (codeBlocks > 0) {
+      log('代码块有高亮', (await page.locator('.md-code [class^="hljs-"]').count()) > 0)
+      log('代码块有复制按钮', (await page.locator('.md-code-copy').count()) > 0)
+    }
+
+    if ((await page.locator('.toc-btn').count()) > 0) {
+      await page.locator('.toc-btn').click()
       await page.waitForTimeout(500)
       const sheet = await page.locator('.sheet.is-open').count()
       log('目录抽屉可开', sheet > 0)
       await page.locator('.mask').click()
       await page.waitForTimeout(400)
     }
+
+    // 字号：切「大」，正文基准字号必须真的变
+    const fsBefore = await page.evaluate(() => getComputedStyle(document.querySelector('.md')).fontSize)
+    await page.locator('.gtop .aa').click()
+    await page.waitForTimeout(400)
+    await page.locator('.font-opt').nth(2).click()
+    await page.waitForTimeout(500)
+    const fsAfter = await page.evaluate(() => getComputedStyle(document.querySelector('.md')).fontSize)
+    log('字号切换生效', fsBefore !== fsAfter, `${fsBefore} → ${fsAfter}`)
+    // 还原，别把偏好写脏
+    await page.locator('.gtop .aa').click()
+    await page.waitForTimeout(300)
+    await page.locator('.font-opt').nth(1).click()
+    await page.waitForTimeout(400)
+
     await shot(page, '04-doc')
   }
 

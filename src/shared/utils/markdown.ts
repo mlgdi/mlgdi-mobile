@@ -17,6 +17,7 @@
  * 点击由页面统一委托处理：站内按标题解析 id，站外复制链接。
  */
 import MarkdownIt from 'markdown-it'
+import hljs from 'highlight.js/lib/common'
 import { assetUrl } from './asset'
 
 export const WIKILINK_SCHEME = 'garden://doc/'
@@ -30,6 +31,8 @@ export interface TocItem {
 export interface RenderResult {
   html: string
   toc: TocItem[]
+  /** 代码块原文，按 fence 出现顺序；复制按钮靠下标取，避免把全文塞进 data 属性 */
+  codes: string[]
 }
 
 const md = new MarkdownIt({
@@ -111,6 +114,38 @@ md.renderer.rules.heading_open = (tokens, idx, options, env, self) => {
   return self.renderToken(tokens, idx, options)
 }
 
+/**
+ * 代码块：hljs 高亮 + 语言标签 + 复制。
+ *
+ * 与 Web 的差异：**不做行号**。手机上代码本来就横向滚动，行号列会再吃掉 40rpx
+ * 的可用宽度，而「第几行」在移动阅读里几乎没有用；语言和复制才是真需要的。
+ * 配色沿用 `src/styles/hljs.css`（从 Web 的 hljs-vscode.css 转换，token 颜色一致）。
+ */
+md.renderer.rules.fence = (tokens, idx, options, env) => {
+  const token = tokens[idx]
+  const lang = (token.info || '').trim().split(/\s+/)[0] || 'text'
+  const code = token.content.replace(/\n$/, '')
+  const envObj = env as { codes?: string[] }
+  if (!envObj.codes) envObj.codes = []
+  const codeIndex = envObj.codes.push(code) - 1
+
+  let inner = esc(code)
+  if (lang && hljs.getLanguage(lang)) {
+    try {
+      inner = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
+    } catch {
+      /* 高亮失败回落纯文本 */
+    }
+  }
+
+  return (
+    `<div class="md-code"><div class="md-code-head">` +
+    `<span class="md-code-lang">${esc(lang)}</span>` +
+    `<span class="md-code-copy" data-code="${codeIndex}">复制</span>` +
+    `</div><pre class="hljs"><code>${inner}</code></pre></div>`
+  )
+}
+
 /** 表格包一层滚动容器：手机上宽表必须能横向滑，`table` 自身设 overflow 无效 */
 md.renderer.rules.table_open = () => '<div class="md-table">\n<table>\n'
 md.renderer.rules.table_close = () => '</table>\n</div>\n'
@@ -166,9 +201,9 @@ function tightenCjk(html: string): string {
 }
 
 export function renderMarkdown(body: string): RenderResult {
-  const env: { toc?: TocItem[] } = {}
+  const env: { toc?: TocItem[]; codes?: string[] } = {}
   const html = tightenCjk(md.render(body || '', env))
-  return { html, toc: env.toc || [] }
+  return { html, toc: env.toc || [], codes: env.codes || [] }
 }
 
 /** 从 `garden://doc/xxx` 里取出目标标题（解码后） */
