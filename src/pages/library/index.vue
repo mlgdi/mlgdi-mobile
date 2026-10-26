@@ -5,9 +5,6 @@
       <view class="safe-top" />
       <GTopBar :elevated="scrolled">
         <template #actions>
-          <view class="icon-btn icon-new" @click="openNew">
-            <GIcon name="plus" :size="36" :weight="2.5" />
-          </view>
           <view class="icon-btn" @click="toggleSearch">
             <GIcon :name="searching ? 'close' : 'search'" :size="40" />
           </view>
@@ -37,9 +34,29 @@
 
       <!-- 首页 = 网页默认页的引言 + 直接铺最新内容；栏目导览退到列表之后 -->
       <view v-if="!searching && isHome" class="home">
-        <view class="home-intro">
-          <text class="home-tagline">{{ tagline }}</text>
-          <text v-if="description" class="home-desc">{{ description }}</text>
+        <!-- 首页卡与栏目卡同构：同一套 mark / 名称 / 篇数 / 副行 / 新建，
+             切换 tab 时卡片结构不变，新建永远在右上角同一个位置 -->
+        <view class="col-hero home-hero" :style="homeHeroStyle">
+          <view class="col-head">
+            <view class="col-badge">
+              <GIcon name="home" :size="40" :weight="2" />
+            </view>
+            <view class="col-titles">
+              <view class="col-name-row">
+                <text class="col-name">自留地</text>
+                <text class="col-pill">{{ notes.docs.length }} 篇</text>
+                <view class="col-new" @click.stop="openNew">
+                  <GIcon name="plus" :size="24" :weight="2.6" />
+                  <text class="col-new-t">新建</text>
+                </view>
+              </view>
+              <text class="col-sub">
+                五个栏目<template v-if="homeUpdated"> · {{ homeUpdated }}</template>
+              </text>
+            </view>
+          </view>
+          <text class="home-tag">{{ tagline }}</text>
+          <text v-if="description" class="col-desc home-desc">{{ description }}</text>
         </view>
 
         <view v-if="pagedTotal" class="section-head">
@@ -66,6 +83,10 @@
             <view class="col-name-row">
               <text class="col-name">{{ activeCol.name }}</text>
               <text class="col-pill">{{ pagedTotal }} 篇</text>
+              <view class="col-new" @click.stop="openNew">
+                <GIcon name="plus" :size="24" :weight="2.6" />
+                <text class="col-new-t">新建</text>
+              </view>
             </view>
             <text class="col-sub">
               {{ activeCol.brief }}<template v-if="colUpdated"> · {{ colUpdated }}</template>
@@ -325,19 +346,22 @@ const colDesc = computed(() => {
 })
 
 /** 该栏目最近一次更新的相对时间，给头部做「活跃度」提示 */
-const colUpdated = computed(() => {
-  const col = activeCol.value
-  if (!col) return ''
-  const list = notes.docs.filter((d) => columnByPath(d.path)?.code === col.code)
+/** 一组文档里最近一次更新距今多久，给卡片副行用 */
+function updatedLabel(list: FlatDoc[]): string {
   if (!list.length) return ''
   const latest = list.reduce((a, b) => ((b.updated_at || '') > (a.updated_at || '') ? b : a))
-  const raw = latest.updated_at || ''
-  const d = new Date(raw.replace(' ', 'T'))
+  const d = new Date((latest.updated_at || '').replace(' ', 'T'))
   if (Number.isNaN(d.getTime())) return ''
   const diff = (Date.now() - d.getTime()) / 86400000
   if (diff < 1) return '今天更新'
   if (diff < 30) return `${Math.floor(diff)} 天前更新`
   return `${d.getMonth() + 1} 个月前更新`
+}
+
+const colUpdated = computed(() => {
+  const col = activeCol.value
+  if (!col) return ''
+  return updatedLabel(notes.docs.filter((d) => columnByPath(d.path)?.code === col.code))
 })
 
 /** 已选子类的目录名，用于在列表元信息里去掉重复的那一层 */
@@ -354,6 +378,21 @@ const heroStyle = computed(() => {
     '--c-ink': heroInk.value,
   } as Record<string, string>
 })
+
+/** 首页卡配色：与目录/编辑页的强调蓝一致 */
+const homeHeroStyle = computed(() => {
+  const dark = resolvedTheme.value === 'dark'
+  const base = dark ? '#2997ff' : '#0066cc'
+  return {
+    '--c-soft': tint(base, dark ? 0.2 : 0.1),
+    '--c-line': tint(base, dark ? 0.34 : 0.18),
+    '--c-glow': tint(base, dark ? 0.34 : 0.26),
+    '--c-ink': dark ? '#7cc0ff' : '#0058a3',
+  } as Record<string, string>
+})
+
+/** 首页卡片副行的「N 天前更新」，按全站最近一次改动算 */
+const homeUpdated = computed(() => updatedLabel(notes.docs))
 
 /** 子类 chip 的配色跟随当前栏目 */
 const chipStyle = computed(() => ({
@@ -622,6 +661,44 @@ onPullDownRefresh(async () => {
   display: flex;
   align-items: center;
   gap: 14rpx;
+  /* 名称 + 篇数 pill 不能再撑宽：右上角还有新建按钮 */
+  padding-right: 150rpx;
+}
+
+/* 新建：贴在卡片右上角，不参与内容流——participating 的话「自留地」+pill+按钮
+   会把 3 个字的名字挤成两行 */
+.col-new {
+  position: absolute;
+  top: 26rpx;
+  right: 26rpx;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  height: 58rpx;
+  padding: 0 20rpx;
+  border-radius: var(--r-full);
+  background-color: var(--surface);
+  border: 1rpx solid var(--c-line);
+  color: var(--c-ink);
+}
+
+/* 视觉 58rpx，热区补到 88rpx（否则手指按不准） */
+.col-new::after {
+  content: '';
+  position: absolute;
+  inset: -15rpx;
+}
+
+.col-new:active {
+  background-color: var(--bg-hover);
+}
+
+.col-new-t {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: var(--c-ink);
+  line-height: 1;
 }
 
 .col-name {
@@ -647,6 +724,8 @@ onPullDownRefresh(async () => {
   margin-top: 8rpx;
   font-size: 26rpx;
   color: var(--muted);
+  /* 右上角是「新建」，副行不许钻到它下面 */
+  padding-right: 150rpx;
 }
 
 .col-desc {
@@ -735,52 +814,26 @@ onPullDownRefresh(async () => {
   color: var(--faint);
 }
 
-/* ---------------- 首页导语 ----------------
-   不再是一段裸文字直接顶在品牌栏下（那样像没写完的半句）。
-   收进浅底卡片：有边界、有呼吸，也和栏目页的浸染卡是同一套手法。 */
-.home {
-  padding-top: 8rpx;
+/* ---------------- 首页卡 ----------------
+   与栏目卡同构（mark / 名称 / 篇数 / 副行 / 右上新建），
+   切换 tab 时卡片结构不变，新建永远在同一个位置。 */
+.home-hero {
+  margin-bottom: 8rpx;
 }
 
-.home-intro {
-  position: relative;
-  overflow: hidden;
-  padding: 30rpx 30rpx 32rpx;
-  border-radius: var(--r-lg);
-  background-color: var(--surface-2);
-}
-
-/* 右上柔光：与栏目头卡同一手法，避免整块死灰 */
-.home-intro::after {
-  content: '';
-  position: absolute;
-  right: -80rpx;
-  top: -120rpx;
-  width: 300rpx;
-  height: 300rpx;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--accent-soft) 0%, transparent 70%);
-  pointer-events: none;
-}
-
-/* 34rpx 而非 40rpx：原来那号字与「最近更新」「列表标题」三层挤在一起，
-   谁都压不住谁。降一级后导语是「说明」，列表才是主体。 */
-.home-tagline {
+.home-tag {
   position: relative;
   display: block;
-  font-size: 34rpx;
+  margin-top: 24rpx;
+  font-size: 32rpx;
   font-weight: 600;
   line-height: 1.55;
-  letter-spacing: -0.4rpx;
+  letter-spacing: -0.3rpx;
   color: var(--text);
 }
 
 .home-desc {
-  position: relative;
-  display: block;
-  margin-top: 16rpx;
-  font-size: 26rpx;
-  line-height: 1.65;
+  margin-top: 12rpx;
   color: var(--muted);
 }
 
@@ -800,21 +853,6 @@ onPullDownRefresh(async () => {
 .section-more {
   font-size: var(--fs-xs);
   color: var(--faint);
-}
-
-/* ---------------- 新建入口 ---------------- */
-.icon-new {
-  /* 强调色胶囊：新建是这一页最主动的动作，用色块而不是又一根线条 */
-  width: 72rpx;
-  height: 72rpx;
-  margin-right: 2rpx;
-  border-radius: var(--r-full);
-  background-color: var(--accent);
-  color: #fff;
-}
-
-.icon-new:active {
-  background-color: var(--accent-hover);
 }
 
 /* ---------------- 新建面板 ---------------- */
@@ -934,21 +972,6 @@ onPullDownRefresh(async () => {
 .btn-off {
   background-color: var(--surface-2);
   color: var(--faint);
-}
-
-/* ---------------- 新建入口 ---------------- */
-.icon-new {
-  /* 强调色胶囊：新建是这一页最主动的动作，用色块而不是又一根线条 */
-  width: 72rpx;
-  height: 72rpx;
-  margin-right: 2rpx;
-  border-radius: var(--r-full);
-  background-color: var(--accent);
-  color: #fff;
-}
-
-.icon-new:active {
-  background-color: var(--accent-hover);
 }
 
 /* ---------------- 新建面板 ---------------- */

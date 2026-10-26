@@ -125,6 +125,22 @@
       </scroll-view>
     </template>
 
+    <!-- 浮动 AI 球：可拖动，位置记在本地。面板打开时收起，
+         由面板头部那个同样的头像承担「关闭」——右下角在面板覆盖范围内，
+         留着也点不到，不如把关闭放在看得见的地方。 -->
+    <view
+      v-if="!loading && !aiOpen"
+      :class="['ai-fab', { 'is-drag': fabDragging }]"
+      :style="fabStyle"
+      @touchstart="onFabStart"
+      @touchmove.stop.prevent="onFabMove"
+      @touchend="onFabEnd"
+      @touchcancel="onFabEnd"
+      @click="onFabTap"
+    >
+      <image class="ai-fab-img" :src="aiIcon" mode="aspectFit" />
+    </view>
+
     <!-- AI 面板 -->
     <view v-if="aiOpen" class="mask" @click="closeAi" />
     <view :class="['ai-sheet', { 'is-open': aiOpen }]">
@@ -132,6 +148,10 @@
       <view class="sheet-head">
         <text class="sheet-title">AI 助手</text>
         <text class="sheet-sub">{{ aiScopeText }}</text>
+        <view class="sheet-spacer" />
+        <view class="sheet-x" @click="closeAi">
+          <image class="sheet-x-img" :src="aiIcon" mode="aspectFit" />
+        </view>
       </view>
 
       <view v-if="aiLoading" class="ai-loading">
@@ -622,8 +642,93 @@ function copyAi(): void {
   })
 }
 
+/* ============================ 浮动 AI 球 ============================
+   位置用 px 存（不是 rpx）：拖动是物理位移，混用单位会导致换机型后跑偏。
+   图标跟主题走：明亮 ai_dog、黑暗 ai_cat。 */
+const AI_FAB_KEY = 'garden.editor.aifab'
+
+const sysInfo = uni.getSystemInfoSync()
+const winW = Number(sysInfo.windowWidth) || 375
+const winH = Number(sysInfo.windowHeight) || 667
+/** 750 设计稿单位 → 物理 px */
+const rpx2px = (n: number): number => (n * winW) / 750
+const FAB_SIZE = rpx2px(88)
+
+const aiIcon = computed(() =>
+  resolvedTheme.value === 'dark' ? '/static/ai_cat.png' : '/static/ai_dog.png',
+)
+
+/** 默认落在右下角、底部工具栏上方 */
+const fabPos = ref({
+  x: winW - rpx2px(32) - FAB_SIZE,
+  y: winH - rpx2px(150) - FAB_SIZE,
+})
+const fabDragging = ref(false)
+const fabStyle = computed(() => ({ left: `${fabPos.value.x}px`, top: `${fabPos.value.y}px` }))
+
+let dragOrigin = { x: 0, y: 0, ox: 0, oy: 0 }
+let dragMoved = false
+let lastDragEnd = 0
+
+function clampFab(x: number, y: number): { x: number; y: number } {
+  return {
+    x: Math.min(Math.max(0, x), winW - FAB_SIZE),
+    y: Math.min(Math.max(0, y), winH - FAB_SIZE),
+  }
+}
+
+function loadFabPos(): void {
+  try {
+    const raw = uni.getStorageSync(AI_FAB_KEY)
+    if (raw && typeof raw === 'object' && typeof raw.x === 'number' && typeof raw.y === 'number') {
+      fabPos.value = clampFab(raw.x, raw.y)
+    }
+  } catch {
+    /* 用默认位置 */
+  }
+}
+
+function onFabStart(e: any): void {
+  const t = e?.touches?.[0]
+  if (!t) return
+  dragOrigin = { x: t.clientX, y: t.clientY, ox: fabPos.value.x, oy: fabPos.value.y }
+  dragMoved = false
+  fabDragging.value = true
+}
+
+function onFabMove(e: any): void {
+  if (!fabDragging.value) return
+  const t = e?.touches?.[0]
+  if (!t) return
+  const dx = t.clientX - dragOrigin.x
+  const dy = t.clientY - dragOrigin.y
+  // 6px 死区：手指微抖不算拖，否则点按永远点不动
+  if (!dragMoved && Math.abs(dx) < 6 && Math.abs(dy) < 6) return
+  dragMoved = true
+  fabPos.value = clampFab(dragOrigin.ox + dx, dragOrigin.oy + dy)
+}
+
+function onFabEnd(): void {
+  if (!fabDragging.value) return
+  fabDragging.value = false
+  if (!dragMoved) return
+  lastDragEnd = Date.now()
+  try {
+    uni.setStorageSync(AI_FAB_KEY, { ...fabPos.value })
+  } catch {
+    /* 存不进就本次有效 */
+  }
+}
+
+/** 拖动结束后的 click 要吃掉，否则松手就弹出面板 */
+function onFabTap(): void {
+  if (Date.now() - lastDragEnd < 320) return
+  void openAi()
+}
+
 onLoad((options: any) => {
   docId.value = String((options && options.id) || '')
+  loadFabPos()
   if (!docId.value) {
     uni.showToast({ title: '缺少文档 id', icon: 'none' })
     return
@@ -927,6 +1032,41 @@ onLoad((options: any) => {
   opacity: 0.4;
 }
 
+/* ---------------- 浮动 AI 球 ---------------- */
+.ai-fab {
+  position: fixed;
+  z-index: 92;
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.18);
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease;
+  /* 拖动时不要让页面跟着滚 */
+  touch-action: none;
+}
+
+.ai-fab.is-drag {
+  transform: scale(1.06);
+  box-shadow: 0 14rpx 36rpx rgba(0, 0, 0, 0.3);
+  transition: none;
+}
+
+.ai-fab-img {
+  display: block;
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 50%;
+}
+
+/* 深色下两张图的浅色圆底会发亮，加一圈冷白描边让它们像「夜间模式的头像」 */
+.theme-dark .ai-fab {
+  box-shadow:
+    0 0 0 2rpx rgba(255, 255, 255, 0.16),
+    0 8rpx 24rpx rgba(0, 0, 0, 0.5);
+}
+
 /* ---------------- AI 面板 ---------------- */
 .mask {
   position: fixed;
@@ -979,6 +1119,24 @@ onLoad((options: any) => {
 .sheet-sub {
   font-size: var(--fs-2xs);
   color: var(--faint);
+}
+
+.sheet-spacer {
+  flex: 1 1 auto;
+}
+
+.sheet-x {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  border: 1rpx solid var(--line);
+  overflow: hidden;
+}
+
+.sheet-x-img {
+  display: block;
+  width: 64rpx;
+  height: 64rpx;
 }
 
 .ai-body {
