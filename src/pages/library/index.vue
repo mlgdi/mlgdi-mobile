@@ -44,19 +44,15 @@
             <view class="col-titles">
               <view class="col-name-row">
                 <text class="col-name">自留地</text>
-                <text class="col-pill">{{ notes.docs.length }} 篇</text>
                 <view class="col-new" @click.stop="openNew">
                   <GIcon name="plus" :size="24" :weight="2.6" />
                   <text class="col-new-t">新建</text>
                 </view>
               </view>
-              <text class="col-sub">
-                五个栏目<template v-if="homeUpdated"> · {{ homeUpdated }}</template>
-              </text>
+              <text class="col-sub">{{ homeSub }}</text>
             </view>
           </view>
           <text class="home-tag">{{ tagline }}</text>
-          <text v-if="description" class="col-desc home-desc">{{ description }}</text>
         </view>
 
         <view v-if="pagedTotal" class="section-head">
@@ -257,7 +253,6 @@ let lastClip = ''
 
 const loggedIn = computed(() => hasSession())
 const tagline = computed(() => siteStore.info.tagline || '一念入笺，循智而溯，观而得悟，道以自寻，逸守一隅')
-const description = computed(() => siteStore.info.description || '')
 
 const isHome = computed(() => activeTab.value === 'HOME')
 const activeCol = computed(() => (isHome.value ? null : columnByCode(activeTab.value) || COLUMNS[0]))
@@ -393,6 +388,11 @@ const homeHeroStyle = computed(() => {
 
 /** 首页卡片副行的「N 天前更新」，按全站最近一次改动算 */
 const homeUpdated = computed(() => updatedLabel(notes.docs))
+
+/** 副行：栏目数 · 篇数 · 更新时间。用「·」串，缺项自动消失（不留「· 」尾巴） */
+const homeSub = computed(() =>
+  ['五个栏目', `${notes.docs.length} 篇`, homeUpdated.value].filter(Boolean).join(' · '),
+)
 
 /** 子类 chip 的配色跟随当前栏目 */
 const chipStyle = computed(() => ({
@@ -815,26 +815,23 @@ onPullDownRefresh(async () => {
 }
 
 /* ---------------- 首页卡 ----------------
-   与栏目卡同构（mark / 名称 / 篇数 / 副行 / 右上新建），
-   切换 tab 时卡片结构不变，新建永远在同一个位置。 */
+   与栏目卡同构（mark / 名称 / 副行 / 右上新建），切 tab 时结构不跳。
+   首页没有 pill：那篇数已经在副行里了，一颗胶囊只为重复同一个数字不值得。 */
 .home-hero {
   margin-bottom: 8rpx;
 }
 
+/* 引言：32rpx/600 会和「自留地」这个 52rpx 标题抢注意力，
+   降到 30rpx/500 + text-2 —— 它是「说明」，不是第二个标题。 */
 .home-tag {
   position: relative;
   display: block;
-  margin-top: 24rpx;
-  font-size: 32rpx;
-  font-weight: 600;
-  line-height: 1.55;
-  letter-spacing: -0.3rpx;
-  color: var(--text);
-}
-
-.home-desc {
-  margin-top: 12rpx;
-  color: var(--muted);
+  margin-top: 20rpx;
+  font-size: 30rpx;
+  font-weight: 500;
+  line-height: 1.66;
+  letter-spacing: 0;
+  color: var(--text-2);
 }
 
 .section-head {

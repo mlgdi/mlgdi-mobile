@@ -11,12 +11,14 @@ withDefaults(
   defineProps<{
     /** 品牌名或页面标题 */
     title?: string
+    /** 标题后的小字副信息（版本号、篇数之类）。刻意做成同一个文本块，不单独占位 */
+    sub?: string
     /** 是否二级页：显示返回箭头、标题居中 */
     back?: boolean
     /** 内容已滚动：显示磨砂底与下边框 */
     elevated?: boolean
   }>(),
-  { title: '渡己・Mlgdi', back: false, elevated: false },
+  { title: '渡己・Mlgdi', sub: '', back: false, elevated: false },
 )
 
 const emit = defineEmits<{ (e: 'back'): void }>()
@@ -27,7 +29,10 @@ const emit = defineEmits<{ (e: 'back'): void }>()
     <view v-if="back" class="lead" @click="emit('back')">
       <GIcon name="chevron-left" :size="48" :weight="2.3" />
     </view>
-    <text :class="['title', { 'is-brand': !back }]">{{ title }}</text>
+    <view :class="['title-wrap', { 'is-brand': !back }]">
+      <text class="title">{{ title }}</text>
+      <text v-if="sub" class="sub">{{ sub }}</text>
+    </view>
     <view class="spacer" />
     <view class="actions">
       <slot name="actions" />
@@ -75,9 +80,26 @@ const emit = defineEmits<{ (e: 'back'): void }>()
   letter-spacing: -0.6rpx;
 }
 
-.gtop.is-sub .title {
+/* 标题 + 副信息（版本号之类）同一个文本块。
+   flex 放在包装层而不是 .title 上：两层都 flex:1 会把副信息挤没。 */
+.title-wrap {
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  align-items: baseline;
+}
+
+.sub {
+  flex: 0 0 auto;
+  margin-left: 12rpx;
+  font-size: 22rpx;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.gtop.is-sub .title {
   /* 左对齐：手机窄，居中时左侧 96rpx、右侧动作数量不定，
      标题的「视觉中心」会跟着漂；左对齐与品牌名同一套语言 */
   text-align: left;

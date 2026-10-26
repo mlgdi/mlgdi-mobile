@@ -239,6 +239,11 @@ try {
     await page.locator('.save-btn').click()
     await page.waitForTimeout(2000)
     log('保存正文', !(await page.locator('text=未保存').first().isVisible()))
+    // 版本号在顶栏标题后面、小字；属性行不再有 vN
+    const topSub = await page.locator('.gtop .sub').first().innerText().catch(() => '')
+    log('顶栏显示版本号', /^v\d+/.test(topSub.trim()), topSub.trim())
+    log('属性行不再重复版本', (await page.locator('.meta-ver').count()) === 0)
+
     log('编辑工具栏', (await page.locator('.tb').count()) >= 20)
     log('工具栏双行', (await page.locator('.tools-row').count()) === 2)
 
@@ -258,6 +263,15 @@ try {
     await page.locator('.meta-btn').nth(0).click()
     await page.waitForTimeout(600)
     log('封面面板可开', (await page.locator('.ai-sheet.is-open').count()) > 0)
+    await page.locator('.ai-sheet.is-open .sheet-close').click()
+    await page.waitForTimeout(300)
+
+    // AI 入口：标题旁的 ✨、标签面板里的「让 AI 生成标签」。
+    // 只验入口存在，不真跑——冒烟不该每次都花一次模型调用
+    log('标题有 AI 入口', (await page.locator('.title-ai').count()) === 1)
+    await page.locator('.meta-btn').nth(1).click()
+    await page.waitForTimeout(600)
+    log('标签有 AI 入口', (await page.locator('.ai-gen').count()) === 1)
     await page.locator('.ai-sheet.is-open .sheet-close').click()
     await page.waitForTimeout(300)
     await page.locator('.tb-w').nth(1).click()
