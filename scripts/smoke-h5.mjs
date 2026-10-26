@@ -115,7 +115,7 @@ async function cleanupDocs(page) {
   if (createdDocIds.length) log(`清理冒烟文档（${removed}/${createdDocIds.length}）`, removed === createdDocIds.length)
 }
 
-const browser = await chromium.launch()
+const browser = await chromium.launch({ args: ['--disable-web-security'] })
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })
 
 page.on('console', (msg) => {

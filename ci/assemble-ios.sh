@@ -122,6 +122,25 @@ else
 fi
 plist_set CFBundleDisplayName "$APP_NAME"
 
+# URL scheme：别的 App 可以通过 mlgdi://capture?text=... 把内容递进来。
+# App 端在 onShow 里读 plus.runtime.arguments 处理（src/shared/utils/intake.ts）。
+# PlistBuddy 操作嵌套数组里的 dict 很啰嗦，整段用 python 写 plist 最省事。
+python3 - "$PLIST" <<'PY'
+import plistlib, sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+data = plistlib.loads(p.read_bytes())
+data["CFBundleURLTypes"] = [
+    {
+        "CFBundleURLName": "com.mlgdi.garden",
+        "CFBundleURLSchemes": ["mlgdi"],
+    }
+]
+p.write_bytes(plistlib.dumps(data))
+print("CFBundleURLTypes: mlgdi:// 已注册")
+PY
+
 log "6/9 图标与本地化名称"
 # 图标：SDK 的 AppIcon.appiconset 是**空目录**，ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon
 # 指过去也拿不到图，桌面就显示白图标。图标是构建输入，随仓库一起走。

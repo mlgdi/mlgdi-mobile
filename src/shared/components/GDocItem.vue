@@ -7,6 +7,7 @@
 import { computed } from 'vue'
 import type { FlatDoc } from '../store/notes'
 import { columnByPath, type Column } from '../config/columns'
+import { assetUrl } from '../utils/asset'
 
 const props = withDefaults(
   defineProps<{
@@ -50,35 +51,65 @@ const leadLabel = computed(() => {
   if (props.showColumn) return col.value?.name || props.doc.rootName
   return relFolder.value
 })
+
+/** 封面缩略图地址。没有封面就不渲染占位——空格子比没有更难看。 */
+const coverSrc = computed(() => assetUrl(props.doc.cover_image || ''))
 </script>
 
 <template>
   <view class="doc" @click="emit('open', doc)">
-    <view class="doc-head">
-      <text class="doc-title">{{ doc.title }}</text>
-      <text v-if="doc.pinned" class="pin">置顶</text>
-    </view>
-    <text v-if="doc.excerpt" class="doc-excerpt">{{ doc.excerpt }}</text>
-    <view class="doc-meta">
-      <text v-if="leadLabel" :class="showColumn ? 'doc-cat' : 'doc-folder'">{{ leadLabel }}</text>
-      <text v-if="leadLabel" class="meta-dot">·</text>
-      <text>{{ dateText }}</text>
-      <template v-if="doc.word_count">
-        <text class="meta-dot">·</text>
-        <text>{{ doc.word_count }} 字</text>
-      </template>
+    <image
+      v-if="coverSrc"
+      class="doc-cover"
+      :src="coverSrc"
+      mode="aspectFill"
+      :lazy-load="true"
+    />
+    <view class="doc-main">
+      <view class="doc-head">
+        <text class="doc-title">{{ doc.title }}</text>
+        <text v-if="doc.pinned" class="pin">置顶</text>
+      </view>
+      <text v-if="doc.excerpt" class="doc-excerpt">{{ doc.excerpt }}</text>
+      <view class="doc-meta">
+        <text v-if="leadLabel" :class="showColumn ? 'doc-cat' : 'doc-folder'">{{ leadLabel }}</text>
+        <text v-if="leadLabel" class="meta-dot">·</text>
+        <text>{{ dateText }}</text>
+        <template v-if="doc.word_count">
+          <text class="meta-dot">·</text>
+          <text>{{ doc.word_count }} 字</text>
+        </template>
+      </view>
     </view>
   </view>
 </template>
 
 <style scoped>
 .doc {
+  display: flex;
+  align-items: flex-start;
+  gap: 20rpx;
   padding: 28rpx 0;
   border-bottom: 1rpx solid var(--line);
 }
 
 .doc:active {
   opacity: 0.6;
+}
+
+/* 封面缩略图：4:3 小图放左侧。image 必须显式宽高（uni 不会按比例撑） */
+.doc-cover {
+  flex: 0 0 auto;
+  width: 168rpx;
+  height: 126rpx;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+}
+
+/* 没封面的行没有缩略图，内容列自然占满；有封面时内容列要能收缩换行 */
+.doc-main {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .doc-head {

@@ -32,27 +32,17 @@
         />
       </view>
 
-      <!-- 首页 = 网页默认页的引言 + 直接铺最新内容；栏目导览退到列表之后 -->
+      <!-- 首页 = 直接铺最新内容。
+           首页卡只留关键信息：一行概况 + 新建。房子图标、「自留地」、引言都撤了——
+           用户点进首页要的是内容，不是再看一遍门户介绍；
+           而且这行概况和下面「最近更新」列表紧挨着，大卡片只会把内容推到Fold 以下。 -->
       <view v-if="!searching && isHome" class="home">
-        <!-- 首页卡与栏目卡同构：同一套 mark / 名称 / 篇数 / 副行 / 新建，
-             切换 tab 时卡片结构不变，新建永远在右上角同一个位置 -->
-        <view class="col-hero home-hero" :style="homeHeroStyle">
-          <view class="col-head">
-            <view class="col-badge">
-              <GIcon name="home" :size="40" :weight="2" />
-            </view>
-            <view class="col-titles">
-              <view class="col-name-row">
-                <text class="col-name">自留地</text>
-                <view class="col-new" @click.stop="openNew">
-                  <GIcon name="plus" :size="24" :weight="2.6" />
-                  <text class="col-new-t">新建</text>
-                </view>
-              </view>
-              <text class="col-sub">{{ homeSub }}</text>
-            </view>
+        <view class="home-bar" :style="homeHeroStyle">
+          <text class="home-bar-sub">{{ homeSub }}</text>
+          <view class="home-new" @click.stop="openNew">
+            <GIcon name="plus" :size="24" :weight="2.6" />
+            <text class="home-new-t">新建</text>
           </view>
-          <text class="home-tag">{{ tagline }}</text>
         </view>
 
         <view v-if="pagedTotal" class="section-head">
@@ -118,18 +108,6 @@
           </view>
         </view>
       </scroll-view>
-
-      <!-- 剪贴板检测浮条：App 从后台回来时，若剪贴板是内容就问一句 -->
-      <view v-if="clipHint" class="clip">
-        <view class="clip-main">
-          <text class="clip-title">检测到剪贴板内容</text>
-          <text class="clip-text">{{ clipHint }}</text>
-        </view>
-        <view class="clip-actions">
-          <text class="clip-cancel" @click="dismissClip">忽略</text>
-          <text class="clip-do" @click="captureClip">收进碎片箱</text>
-        </view>
-      </view>
 
       <!-- 列表 -->
       <view v-if="notes.loading && !notes.docs.length" class="state">
@@ -228,8 +206,6 @@ import { createDoc } from '../../shared/api/notes'
 import { usePagedList } from '../../shared/composables/usePagedList'
 import { hasSession } from '../../shared/auth/session'
 import { resolvedTheme } from '../../shared/theme'
-import { capabilities } from '../../shared/capabilities'
-import { readClipboard } from '../../shared/utils/file'
 import { capture, items as apiInboxItems } from '../../shared/api/inbox'
 import { COLUMNS, columnByCode, columnByPath, tint } from '../../shared/config/columns'
 import GIcon from '../../shared/components/GIcon.vue'
@@ -244,15 +220,12 @@ const siteStore = useSiteStore()
 const keyword = ref('')
 const searching = ref(false)
 const scrolled = ref(false)
-const clipHint = ref('')
 const pendingCount = ref(0)
 const activeTab = ref<TabCode>('HOME')
 /** 子类（子目录）过滤；空串 = 全部 */
 const activeSub = ref('')
-let lastClip = ''
 
 const loggedIn = computed(() => hasSession())
-const tagline = computed(() => siteStore.info.tagline || '一念入笺，循智而溯，观而得悟，道以自寻，逸守一隅')
 
 const isHome = computed(() => activeTab.value === 'HOME')
 const activeCol = computed(() => (isHome.value ? null : columnByCode(activeTab.value) || COLUMNS[0]))
@@ -515,35 +488,6 @@ async function loadPending(): Promise<void> {
   }
 }
 
-/** 剪贴板只在 App 端读；H5 浏览器没有免授权读取 */
-async function checkClipboard(): Promise<void> {
-  if (!capabilities.canCapture || !loggedIn.value) return
-  const text = (await readClipboard()).trim()
-  if (!text || text === lastClip) return
-  const looksUseful =
-    /^https?:\/\/\S{6,}$/i.test(text) || (text.length >= 12 && /\s/.test(text) && text.length < 2000)
-  if (!looksUseful) return
-  lastClip = text
-  clipHint.value = text.length > 60 ? `${text.slice(0, 60)}…` : text
-}
-
-async function captureClip(): Promise<void> {
-  const text = lastClip
-  clipHint.value = ''
-  if (!text) return
-  try {
-    await capture({ content: text, source_type: /^https?:\/\//i.test(text) ? 'url' : 'text' })
-    uni.showToast({ title: '已收进碎片箱', icon: 'none' })
-    void loadPending()
-  } catch (err: any) {
-    uni.showToast({ title: err?.reason || '投递失败', icon: 'none' })
-  }
-}
-
-function dismissClip(): void {
-  clipHint.value = ''
-}
-
 onPageScroll((e) => {
   const top = e.scrollTop
   scrolled.value = top > 4
@@ -561,7 +505,6 @@ onShow(() => {
   notes.load()
   void siteStore.load()
   void loadPending()
-  void checkClipboard()
 })
 
 onReachBottom(() => {
@@ -814,24 +757,52 @@ onPullDownRefresh(async () => {
   color: var(--faint);
 }
 
-/* ---------------- 首页卡 ----------------
-   与栏目卡同构（mark / 名称 / 副行 / 右上新建），切 tab 时结构不跳。
-   首页没有 pill：那篇数已经在副行里了，一颗胶囊只为重复同一个数字不值得。 */
-.home-hero {
-  margin-bottom: 8rpx;
+/* ---------------- 首页条 ----------------
+   只剩「概况一行 + 新建」：图标/名称/引言全部撤掉。
+   这行的任务是在滚动开始前交代一句「库现在什么样」，
+   一行的高度刚好——再高就是把「最近更新」往 Fold 以下推。 */
+.home-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin: 8rpx 0 20rpx;
+  padding: 20rpx 26rpx;
+  border-radius: var(--r-md);
+  background-color: var(--c-soft);
+  border: 1rpx solid var(--c-line);
 }
 
-/* 引言：32rpx/600 会和「自留地」这个 52rpx 标题抢注意力，
-   降到 30rpx/500 + text-2 —— 它是「说明」，不是第二个标题。 */
-.home-tag {
-  position: relative;
-  display: block;
-  margin-top: 20rpx;
-  font-size: 30rpx;
+.home-bar-sub {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 26rpx;
   font-weight: 500;
-  line-height: 1.66;
-  letter-spacing: 0;
-  color: var(--text-2);
+  color: var(--c-ink);
+}
+
+/* 新建：这行只有两个元素，不再需要绝对定位贴角 */
+.home-new {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  height: 58rpx;
+  padding: 0 20rpx;
+  border-radius: var(--r-full);
+  background-color: var(--surface);
+  border: 1rpx solid var(--c-line);
+}
+
+.home-new:active {
+  background-color: var(--bg-hover);
+}
+
+.home-new-t {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: var(--c-ink);
 }
 
 .section-head {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onLaunch, onShow } from '@dcloudio/uni-app'
 import { initTheme, recomputeTheme } from './shared/theme'
+import { askClipboardIntake, handleExternalOpen } from './shared/utils/intake'
 
 onLaunch(() => {
   initTheme()
@@ -9,6 +10,11 @@ onLaunch(() => {
 onShow(() => {
   // 从后台切回来时系统主题可能已变
   recomputeTheme()
+  // 别的 App 通过 mlgdi:// scheme 递进来的内容（热启动在这里，冷启动也走这里：
+  // plus.runtime.arguments 冷热启动都保留）
+  handleExternalOpen()
+  // 剪贴板：切回来时发现像样的内容就弹窗问一句要不要收
+  void askClipboardIntake()
 })
 </script>
 

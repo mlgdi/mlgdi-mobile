@@ -130,37 +130,44 @@ const ICONS: Record<string, string[]> = {
 }
 
 const paths = computed(() => ICONS[props.name] || [])
-const style = computed(() => ({
-  width: typeof props.size === 'number' ? `${props.size}rpx` : props.size,
-  height: typeof props.size === 'number' ? `${props.size}rpx` : props.size,
-}))
+
+/**
+ * 渲染方式：**mask + data URI**，不是内联 <svg>。
+ *
+ * App 端（vue3）的页面由 uni 运行时渲染成 uni-view/uni-text 等自定义元素，
+ * `<svg>`/`<path>` 这种原生标签会被整个丢掉——这就是 iOS 打包后图标全空的原因
+ * （H5 端能渲染任意标签，所以开发时看不出来）。
+ *
+ * mask 方案的好处：形状进 background，颜色仍走 currentColor——
+ * 调用方「跟文字变色」的用法一行都不用改。
+ */
+const style = computed(() => {
+  const size = typeof props.size === 'number' ? `${props.size}rpx` : props.size
+  const body = paths.value.map((d) => `<path d='${d}'/>`).join('')
+  const fill = props.filled ? 'black' : 'none'
+  const stroke = props.filled ? 'none' : 'black'
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='${fill}' ` +
+    `stroke='${stroke}' stroke-width='${props.weight}' ` +
+    `stroke-linecap='round' stroke-linejoin='round'>${body}</svg>`
+  return {
+    width: size,
+    height: size,
+    '--gicon': `url("data:image/svg+xml,${encodeURIComponent(svg)}")`,
+  }
+})
 </script>
 
 <template>
-  <svg
-    class="gicon"
-    :class="{ 'is-filled': filled }"
-    :style="style"
-    viewBox="0 0 24 24"
-    :stroke-width="weight"
-    fill="none"
-    stroke="currentColor"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  >
-    <path v-for="(d, i) in paths" :key="i" :d="d" />
-  </svg>
+  <view class="gicon" :class="{ 'is-filled': filled }" :style="style" />
 </template>
 
 <style scoped>
 .gicon {
   display: block;
   flex: 0 0 auto;
-}
-
-/* 实心版：细线图标填色会糊，只对纯轮廓图标（如 check）使用 */
-.gicon.is-filled {
-  fill: currentColor;
-  stroke: none;
+  background-color: currentColor;
+  -webkit-mask: var(--gicon) center / contain no-repeat;
+  mask: var(--gicon) center / contain no-repeat;
 }
 </style>
