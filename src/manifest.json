@@ -1,0 +1,98 @@
+{
+    "name": "渡己",
+    "appid": "__UNI__1877F1B",
+    "description": "自托管个人知识中枢 · 移动端",
+    "versionName": "0.2.0",
+    "versionCode": "200",
+    "transformPx": false,
+    "uniStatistics": {
+        "enable": false
+    },
+    "app-plus": {
+        "usingComponents": true,
+        "nvueStyleCompiler": "uni-app",
+        "compilerVersion": 3,
+        "splashscreen": {
+            "alwaysShowBeforeRender": true,
+            "waiting": true,
+            "autoclose": true,
+            "delay": 0
+        },
+        "modules": {
+            "Camera": {},
+            "Gallery": {}
+        },
+        "distribute": {
+            "android": {
+                "permissions": [
+                    "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+                    "<uses-permission android:name=\"android.permission.CAMERA\"/>"
+                ],
+                "minSdkVersion": 23,
+                "targetSdkVersion": 33,
+                "abiFilters": [
+                    "arm64-v8a"
+                ]
+            },
+            "ios": {
+                "dSYMs": false,
+                "idfa": false,
+                "privacyDescription": {
+                    "NSPhotoLibraryUsageDescription": "用于把照片追加到碎片记录",
+                    "NSCameraUsageDescription": "用于拍照记录碎片"
+                }
+            },
+            "sdkConfigs": {},
+            "icons": {
+                "android": {
+                    "mdpi": "static/icons/48x48.png",
+                    "hdpi": "static/icons/72x72.png",
+                    "xhdpi": "static/icons/96x96.png",
+                    "xxhdpi": "static/icons/144x144.png",
+                    "xxxhdpi": "static/icons/192x192.png"
+                },
+                "ios": {
+                    "appstore": "static/icons/1024x1024.png",
+                    "iphone": {
+                        "app@2x": "static/icons/120x120.png",
+                        "app@3x": "static/icons/180x180.png",
+                        "notification@2x": "static/icons/40x40.png",
+                        "notification@3x": "static/icons/60x60.png",
+                        "settings@2x": "static/icons/58x58.png",
+                        "settings@3x": "static/icons/87x87.png",
+                        "spotlight@2x": "static/icons/80x80.png",
+                        "spotlight@3x": "static/icons/120x120.png"
+                    },
+                    "ipad": {
+                        "app": "static/icons/76x76.png",
+                        "app@2x": "static/icons/152x152.png",
+                        "notification": "static/icons/20x20.png",
+                        "notification@2x": "static/icons/40x40.png",
+                        "proapp@2x": "static/icons/167x167.png",
+                        "settings": "static/icons/29x29.png",
+                        "settings@2x": "static/icons/58x58.png",
+                        "spotlight": "static/icons/40x40.png",
+                        "spotlight@2x": "static/icons/80x80.png"
+                    }
+                }
+            }
+        }
+    },
+    "quickapp": {},
+    "mp-weixin": {
+        "appid": "",
+        "setting": {
+            "urlCheck": false,
+            "es6": true,
+            "minified": true
+        },
+        "usingComponents": true
+    },
+    "h5": {
+        "title": "渡己",
+        "router": {
+            "mode": "hash"
+        }
+    },
+    "vueVersion": "3"
+}

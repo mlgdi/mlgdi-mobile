@@ -1,0 +1,23 @@
+# 依赖与产物
+node_modules/
+dist/
+dist-apk/
+unpackage/
+shots/
+
+# 签名材料：keystore / p12 / mobileprovision / AppKey 一律不入库
+secrets/
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+
+# 离线 SDK（数百 MB，走 Release 附件）
+sdk/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+*.log
+.vscode/
+.idea/

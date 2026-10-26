@@ -1,0 +1,77 @@
+{
+  "easycom": {
+    "autoscan": true,
+    "custom": {
+      "^mp-html$": "mp-html/dist/uni-app/components/mp-html/mp-html.vue"
+    }
+  },
+  "pages": [
+    {
+      "path": "pages/library/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "渡己",
+        "enablePullDownRefresh": true,
+        "backgroundTextStyle": "dark"
+      }
+    },
+    {
+      "path": "pages/doc/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": ""
+      }
+    },
+    {
+      "path": "pages/inbox/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "碎片箱",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/edit/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "编辑"
+      }
+    },
+    {
+      "path": "pages/import/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "导入"
+      }
+    },
+    {
+      "path": "pages/login/index",
+      "style": {
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/settings/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "设置"
+      }
+    },
+    {
+      "path": "pages/server/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "服务器"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "渡己",
+    "navigationBarBackgroundColor": "#f7f7f8",
+    "backgroundColor": "#f7f7f8",
+    "app-plus": {
+      "background": "#f7f7f8"
+    }
+  }
+}

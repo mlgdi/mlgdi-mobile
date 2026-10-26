@@ -1,0 +1,13 @@
+# 统一用 LF：脚本被转成 CRLF 后在 macOS runner 上会报
+# `bash: /bin/bash^M: bad interpreter`，这类问题在 CI 里极难联想回 Windows 换行符。
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.ipa  binary

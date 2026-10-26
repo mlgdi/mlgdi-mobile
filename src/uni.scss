@@ -1,0 +1,10 @@
+/* uni-app 主题变量入口（uni.scss 会被自动注入到每个组件）。
+   实际配色在 App.vue 的全局样式里，这里只放尺寸与圆角，避免两处定义打架。 */
+$radius-sm: 8px;
+$radius-md: 12px;
+$radius-lg: 18px;
+$space-1: 4px;
+$space-2: 8px;
+$space-3: 12px;
+$space-4: 16px;
+$space-5: 24px;
