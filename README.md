@@ -103,29 +103,46 @@ node scripts/smoke-h5.mjs     # 需要先 npx playwright install chromium
 
 ## 出包：GitHub Actions 打未签名 IPA
 
-本仓库是**独立的私有仓库**（不包含 vault 的任何笔记内容）。iOS 出包走离线打包：
+本仓库是**独立的私有仓库**（不包含 vault 的任何笔记内容）。iOS 出包走离线打包，
+**不需要 Apple 开发者账号**：`CODE_SIGNING_ALLOWED=NO` 编出来的未签名 `.app`
+打成 IPA 后，TrollStore 直接装。
 
 ```bash
-# 手动触发
-gh workflow run ios-unsigned.yml -f sdk_asset=iOSSDK-5.26.zip
-gh run watch
-gh run download --name garden-unsigned-ipa
-# → garden-unsigned.ipa，传手机用 TrollStore 安装
+gh workflow run ios-unsigned.yml -f sdk_asset=SDK.zip
+gh run watch && gh run download --name garden-unsigned-ipa
 ```
 
-为什么不是 HBuilderX 云打包：HBuilderX 是桌面 GUI 程序，runner 上装不了；
-而 uni-app 官方 iOS 离线 SDK 就是普通 Xcode 工程，`CODE_SIGNING_ALLOWED=NO`
-编出来的未签名 `.app` 打成 IPA 后，TrollStore 能直接装——**不需要 Apple 账号**。
+### 实测性能（2026-10-26，macos-15）
 
-### 一次性准备
+| 阶段 | 耗时 |
+|---|---|
+| npm ci + build:app | ~40 s |
+| 拉 SDK（缓存命中则跳过） | 0–90 s |
+| 组装资源 + 改工程 | ~20 s |
+| `pod install`（含 uniapp 子规格） | 6–7 min |
+| `xcodebuild`（8 个模块，Release/arm64） | 4–5 min |
+| **合计** | **约 12 分钟** |
 
-1. 把离线 SDK 挂到本仓库 Release，tag 必须是 `sdk`（workflow 里 `gh release download sdk`）：
-   ```bash
-   gh release create sdk ~/Downloads/iOSSDK-5.26.zip -t "iOS 离线 SDK"
-   ```
-2. 配 Secret `DCLOUD_APPKEY`（dev.dcloud.net.cn → 应用 → iOS 离线打包 AppKey）
-3. 首次跑失败是正常的：`ci/assemble-ios.sh` 找不到 SDK 里的
-   `HBuilder-Hello`/`Info.plist`/`control.xml` 时会打印目录树，照着改路径即可
+产物 33 MB，`Payload/HBuilder.app`，arm64，`MinimumOSVersion 13.0`。
+
+### 五个坑（都是实测踩出来的，别重犯）
+
+1. **SDK zip 里有 `__MACOSX/`**：同名目录会让 `find` 命中 AppleDouble 假目录，
+   必须先 `rm -rf __MACOSX`
+2. **bash 变量后紧跟中文全角括号**（`$VAR（…`）会被当成变量名 → `unbound variable`，
+   一律写 `${VAR}`
+3. **SDK 没有 shared scheme**：CI 上没法用 Xcode GUI 生成，必须自己写一份，
+   target id 要用 python 精确解析 pbxproj（`grep`/`awk` 会取到 build phase 的 id）
+4. **默认模块列表里 `Geolocation-Tencent` 链接不过**：UTS 版 Swift 6 产物报
+   `_swift_coroFrameAlloc` undefined。我们不用定位，直接裁 subspec 到
+   `Core/File/CameraGallery/XMLHttpRequest/Zip/Sqlite/Log/Canvas`
+5. **artifact 下载会 302 到预签名 URL**，带着 `Authorization` 头跟随会被 Azure 拒（401）。
+   要取 `redirect_url` 后**不带认证头**再下
+
+### 一次性准备（已完成）
+
+1. Release tag `sdk` 存 `SDK.zip`（688 MB，HBuilderX 5.26 对应版）
+2. Secret `DCLOUD_APPKEY`
 
 ---
 
@@ -137,7 +154,7 @@ gh run download --name garden-unsigned-ipa
 | M2 阅读（列表 / 文章 / 搜索筛选 / 深色） | ✅ |
 | M3 捕获（投递 / 图片 / 剪贴板检测 / md 导入） | ✅ |
 | M4 轻管理（整理成文 / 编辑 / 发布 / 设备吊销） | ✅ |
-| M5 iOS 出包（HBuilderX + 免费证书 + 巨魔） | 未开始 |
+| M5 iOS 出包（HBuilderX + 免费证书 + 巨魔） | ✅ GitHub Actions 离线打包（12 分钟/次，免证书） |
 | M6 小程序端 | 后置 |
 | 系统分享扩展（Share Extension） | 未开始（需原生插件） |
 | 设备密钥存 Keychain/Keystore | 当前用本地存储，已知欠账 |
