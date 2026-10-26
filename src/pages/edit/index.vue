@@ -112,21 +112,14 @@
          技术上仍是两个输入元素——textarea 无法在一段文本里混排两种字号；
          但同一个背景、同一个左右边距、标题无边框，视觉上是一整块。 -->
     <view v-else-if="!preview" class="paper">
-      <view class="title-row">
-        <input
-          v-model="title"
-          class="paper-title"
-          placeholder="标题"
-          placeholder-class="ph"
-          :maxlength="200"
-          :adjust-position="false"
-        />
-        <!-- 标题的 AI：与 Web 阅读页「AI 标题」同一个 action（title），
-             只是这里要能从「5 个候选」里挑，所以走一个选择面板 -->
-        <view class="title-ai" @click="openAiTitle">
-          <GIcon name="sparkle" :size="30" />
-        </view>
-      </view>
+      <input
+        v-model="title"
+        class="paper-title"
+        placeholder="标题"
+        placeholder-class="ph"
+        :maxlength="200"
+        :adjust-position="false"
+      />
       <textarea
         v-model="body"
         class="paper-body"
@@ -185,6 +178,45 @@
         <text class="ai-loading-s">{{ aiScopeText }}</text>
       </view>
 
+      <!-- 标题候选：点一条直接替换，不需要「应用到」这一步 -->
+      <template v-else-if="aiMeta === 'title' && titleCands.length">
+        <scroll-view class="ai-result" scroll-y>
+          <view class="tt-list">
+            <view
+              v-for="t in titleCands"
+              :key="t"
+              :class="['tt-item', t === title ? 'is-cur' : '']"
+              @click="pickTitle(t)"
+            >
+              <text class="tt-text">{{ t }}</text>
+              <text v-if="t === title" class="tt-tag">当前</text>
+            </view>
+          </view>
+        </scroll-view>
+        <view class="ai-sub-actions">
+          <text class="ai-sub" @click="runMeta('title')">换一批</text>
+          <text class="ai-sub" @click="closeAi">关闭</text>
+        </view>
+      </template>
+
+      <!-- 标签：先看再决定加不加 -->
+      <template v-else-if="aiMeta === 'tags' && aiTagCands.length">
+        <scroll-view class="ai-result" scroll-y>
+          <view class="tt-list">
+            <view class="tag-list">
+              <view v-for="t in aiTagCands" :key="t" class="tag-chip">
+                <text class="tag-t">{{ t }}</text>
+              </view>
+            </view>
+          </view>
+        </scroll-view>
+        <view class="ai-actions">
+          <view class="btn btn-ghost flex1" @click="closeAi">放弃</view>
+          <view class="btn flex1" @click="applyMetaTags">加入标签</view>
+        </view>
+      </template>
+
+      <!-- 正文类：替换 or 复制 -->
       <template v-else-if="aiResult">
         <scroll-view class="ai-result" scroll-y>
           <view class="ai-result-box">
@@ -213,6 +245,14 @@
             {{ a.label }}
           </view>
         </view>
+
+        <!-- 元数据类：结果不是正文，不能「替换正文」，所以单独一组 -->
+        <text class="ai-group">标题与标签</text>
+        <view class="ai-acts">
+          <view class="ai-act" @click="runMeta('title')">AI 标题</view>
+          <view class="ai-act" @click="runMeta('tags')">AI 标签</view>
+        </view>
+
         <text class="ai-tip">
           移动端拿不到长按选区，所以上面的动作都作用全文；结果可整体替换或先复制。
         </text>
@@ -320,49 +360,6 @@
     </view>
 
 
-    <!-- ==================== AI 标题 ==================== -->
-    <view v-if="aiTitleOpen" class="mask" @click="aiTitleOpen = false" />
-    <view :class="['ai-sheet', { 'is-open': aiTitleOpen }]">
-      <view class="sheet-grip" />
-      <view class="sheet-head">
-        <text class="sheet-title">AI 标题</text>
-        <text class="sheet-sub">
-          {{ titleAiRunning ? '生成中…' : titleCands.length ? `${titleCands.length} 个候选` : '按正文拟标题' }}
-        </text>
-        <view class="sheet-spacer" />
-        <view class="sheet-close" @click="aiTitleOpen = false">完成</view>
-      </view>
-
-      <view class="tt-body">
-        <view v-if="titleAiRunning" class="tt-loading">
-          <text class="tt-loading-t">正在读正文…</text>
-          <text class="tt-loading-s">大约 10–20 秒</text>
-        </view>
-
-        <template v-else-if="titleCands.length">
-          <view
-            v-for="t in titleCands"
-            :key="t"
-            :class="['tt-item', t === title ? 'is-cur' : '']"
-            @click="useTitle(t)"
-          >
-            <text class="tt-text">{{ t }}</text>
-            <text v-if="t === title" class="tt-tag">当前</text>
-          </view>
-          <view class="tt-retry" @click="genTitle">
-            <GIcon name="refresh" :size="26" />
-            <text class="tt-retry-t">换一批</text>
-          </view>
-        </template>
-
-        <view v-else class="tt-empty">
-          <text class="tt-empty-t">没能生成标题</text>
-          <text class="tt-empty-s">正文太短或模型未配置都会这样</text>
-          <view class="btn btn-ghost tt-btn" @click="genTitle">重试</view>
-        </view>
-      </view>
-    </view>
-
     <!-- ==================== 表情 ==================== -->
     <view v-if="emojiOpen" class="mask" @click="emojiOpen = false" />
     <view :class="['ai-sheet', { 'is-open': emojiOpen }]">
@@ -436,10 +433,14 @@ const tagInput = ref('')
 /* ---------------- AI 标题 / AI 标签 ----------------
    Web 端这两个能力在阅读页的文档菜单里（`DocView` 的「AI 标题 / AI 标签」），
    action key 都是后端 `workflows_def.py` 里的 system scope（title / tags）。
-   移动端把入口放回它们真正该在的地方：标题旁边、标签面板里。 */
-const aiTitleOpen = ref(false)
-const titleAiRunning = ref(false)
+
+   入口**不挂在标题旁边**：标题行右侧多一颗 ✨，等于给「改标题」凭空加了个悬浮控件，
+   和正文的主体性打架。统一收进 AI 助手（浮动球）的第三组——要用 AI 就点 AI。 */
+/** 本轮 AI 动作属于哪一类，决定结果区怎么渲染 */
+const aiMeta = ref<'' | 'title' | 'tags'>('')
 const titleCands = ref<string[]>([])
+const aiTagCands = ref<string[]>([])
+/** 标签面板里的「让 AI 生成标签」自己的 loading，与 AI 助手互不干扰 */
 const tagAiRunning = ref(false)
 
 /* ---------------- 符号面板 ---------------- */
@@ -451,8 +452,7 @@ const anySheetOpen = computed(
     aiOpen.value ||
     coverOpen.value ||
     tagsOpen.value ||
-    emojiOpen.value ||
-    aiTitleOpen.value,
+    emojiOpen.value,
 )
 
 /** 常用表情与排版符号。手机上打不出这些，只能点。 */
@@ -1095,35 +1095,8 @@ function aiSource(): string {
   return [title.value.trim(), bodyText].filter(Boolean).join('\n\n')
 }
 
-function openAiTitle(): void {
-  aiTitleOpen.value = true
-  // 已经有候选就不重复花钱；想换一批点面板里的「换一批」
-  if (!titleCands.value.length) void genTitle()
-}
-
-async function genTitle(): Promise<void> {
-  if (titleAiRunning.value) return
-  const source = aiSource()
-  if (source.length < AI_MIN_CHARS) {
-    uni.showToast({ title: '内容太短，AI 缺素材', icon: 'none' })
-    return
-  }
-  titleAiRunning.value = true
-  titleCands.value = []
-  try {
-    const r = await aiAssist('title', source)
-    const list = parseTitleCands(r.result || '')
-    titleCands.value = list
-    if (!list.length) uni.showToast({ title: '没有解析出标题', icon: 'none' })
-  } catch (err: any) {
-    uni.showToast({ title: err?.reason || err?.message || '生成失败', icon: 'none' })
-  } finally {
-    titleAiRunning.value = false
-  }
-}
-
 /**
- * 清洗模型输出。
+ * 清洗模型的标题输出。
  *
  * 即使 prompt 写了「不要编号、不要引号」，模型仍会时不时加 `1.` 或「」——
  * 直接当成标题会让用户拿到一个带序号的标题。所以按行切、去前缀、去包裹符号。
@@ -1142,10 +1115,71 @@ function parseTitleCands(raw: string): string[] {
     .slice(0, 6)
 }
 
-function useTitle(t: string): void {
+/** 标签输出是一行逗号分隔；顺手剥掉 # 前缀和句号 */
+function parseTagList(raw: string): string[] {
+  return raw
+    .split(/[,，、;；\s]+/)
+    .map((t) => t.replace(/^#+/, '').replace(/[。.]$/, '').trim())
+    .filter((t) => t.length >= 1 && t.length <= 12)
+}
+
+/**
+ * 跑一个「元数据」类动作（title / tags）。
+ *
+ * 与 runAi 分开的原因：这两类的结果不是正文，按钮语义也不同——
+ * 正文是「替换正文」，标题是「点一条就换」，标签是「加入标签」。
+ */
+async function runMeta(kind: 'title' | 'tags'): Promise<void> {
+  if (aiLoading.value) return
+  const source = aiSource()
+  if (source.length < AI_MIN_CHARS) {
+    uni.showToast({ title: '内容太短，AI 缺素材', icon: 'none' })
+    return
+  }
+  aiMeta.value = kind
+  aiRunningLabel.value = kind === 'title' ? 'AI 标题' : 'AI 标签'
+  aiLoading.value = true
+  aiResult.value = ''
+  titleCands.value = []
+  aiTagCands.value = []
+  try {
+    const r = await aiAssist(kind, source)
+    const text = r.result || ''
+    aiResult.value = text
+    if (kind === 'title') {
+      titleCands.value = parseTitleCands(text)
+      if (!titleCands.value.length) uni.showToast({ title: '没有解析出标题', icon: 'none' })
+    } else {
+      aiTagCands.value = parseTagList(text)
+      if (!aiTagCands.value.length) uni.showToast({ title: '没有生成有效标签', icon: 'none' })
+    }
+  } catch (err: any) {
+    uni.showToast({ title: err?.reason || err?.message || '生成失败', icon: 'none' })
+    aiMeta.value = ''
+    aiResult.value = ''
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+/** 点候选 = 立刻替换标题，并收起面板（不需要再点一次「应用」） */
+function pickTitle(t: string): void {
   title.value = t
-  aiTitleOpen.value = false
+  aiOpen.value = false
+  aiMeta.value = ''
+  titleCands.value = []
   uni.showToast({ title: '标题已替换', icon: 'none' })
+}
+
+/** 把 AI 生成的标签合并进现有（去重，不覆盖手写的） */
+function applyMetaTags(): void {
+  const before = tags.value.length
+  tags.value = [...new Set([...tags.value, ...aiTagCands.value])]
+  const added = tags.value.length - before
+  aiOpen.value = false
+  aiMeta.value = ''
+  aiTagCands.value = []
+  uni.showToast({ title: added ? `新增 ${added} 个标签` : '这些标签已经有了', icon: 'none' })
 }
 
 async function genTags(): Promise<void> {
@@ -1158,10 +1192,7 @@ async function genTags(): Promise<void> {
   tagAiRunning.value = true
   try {
     const r = await aiAssist('tags', source)
-    const list = (r.result || '')
-      .split(/[,，、;；\s]+/)
-      .map((t) => t.replace(/^#+/, '').replace(/[。.]$/, '').trim())
-      .filter((t) => t.length >= 1 && t.length <= 12)
+    const list = parseTagList(r.result || '')
     if (!list.length) {
       uni.showToast({ title: '没有生成有效标签', icon: 'none' })
       return
@@ -1194,13 +1225,20 @@ const aiLoading = ref(false)
 const aiResult = ref('')
 const aiRunningLabel = ref('')
 
-const aiScopeText = computed(() =>
-  aiLoading.value || aiResult.value ? '结果可替换或复制' : '动作来自 .garden/workflows.yaml',
-)
+const aiScopeText = computed(() => {
+  if (aiLoading.value) return '正在处理'
+  if (aiMeta.value === 'title') return `${titleCands.value.length} 个候选 · 点一条替换`
+  if (aiMeta.value === 'tags') return `${aiTagCands.value.length} 个标签`
+  if (aiResult.value) return '结果可替换或复制'
+  return '动作来自 .garden/workflows.yaml'
+})
 
 async function openAi(): Promise<void> {
   aiOpen.value = true
   aiResult.value = ''
+  aiMeta.value = ''
+  titleCands.value = []
+  aiTagCands.value = []
   if (selectionActions.value.length || docActions.value.length) return
   try {
     const res = await aiActions()
@@ -1215,6 +1253,9 @@ function closeAi(): void {
   if (aiLoading.value) return
   aiOpen.value = false
   aiResult.value = ''
+  aiMeta.value = ''
+  titleCands.value = []
+  aiTagCands.value = []
 }
 
 async function runAi(action: AiAction): Promise<void> {
@@ -1450,17 +1491,9 @@ onLoad((options: any) => {
   background-color: var(--bg);
 }
 
-/* 标题 + AI 按钮同一行：AI 只作用于标题，贴着它比塞进工具栏更符合语义 */
-.title-row {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: flex-start;
-  gap: 12rpx;
-}
-
 .paper-title {
-  flex: 1 1 auto;
-  min-width: 0;
+  flex: 0 0 auto;
+  width: 100%;
   min-height: 96rpx;
   padding: 14rpx 0 16rpx;
   box-sizing: border-box;
@@ -1470,24 +1503,6 @@ onLoad((options: any) => {
   line-height: 1.32;
   letter-spacing: -0.8rpx;
   color: var(--text);
-}
-
-.title-ai {
-  flex: 0 0 auto;
-  width: 72rpx;
-  height: 72rpx;
-  /* 26rpx ≈ 标题首行的垂直中心：44rpx 字号 + 14rpx 上内边距 */
-  margin-top: 26rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--r-full);
-  background-color: var(--accent-soft);
-  color: var(--accent);
-}
-
-.title-ai:active {
-  background-color: var(--bg-hover);
 }
 
 .paper-body {
@@ -2094,30 +2109,12 @@ onLoad((options: any) => {
   opacity: 0.55;
 }
 
-/* ---------------- AI 标题面板 ---------------- */
-.tt-body {
-  padding: 8rpx var(--page-gutter) calc(env(safe-area-inset-bottom) + 20rpx);
+/* ---------------- AI 标题候选（AI 助手第三组的结果区） ---------------- */
+.tt-list {
   display: flex;
   flex-direction: column;
   gap: 12rpx;
-}
-
-.tt-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-  padding: 56rpx 0;
-}
-
-.tt-loading-t {
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-}
-
-.tt-loading-s {
-  font-size: var(--fs-2xs);
-  color: var(--faint);
+  padding: 4rpx 0 8rpx;
 }
 
 /* 候选：整行可点，标题允许两行——截断看不清就不叫候选了 */
@@ -2152,165 +2149,6 @@ onLoad((options: any) => {
   font-size: var(--fs-2xs);
   font-weight: 600;
   color: var(--accent);
-}
-
-.tt-retry {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6rpx;
-  height: 76rpx;
-  color: var(--accent);
-}
-
-.tt-retry-t {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-}
-
-.tt-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-  padding: 40rpx 0;
-}
-
-.tt-empty-t {
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-}
-
-.tt-empty-s {
-  font-size: var(--fs-2xs);
-  color: var(--faint);
-}
-
-.tt-btn {
-  margin-top: 12rpx;
-  height: 76rpx;
-  padding: 0 40rpx;
-  flex: 0 0 auto;
-}
-
-/* AI 生成按钮（标签面板顶部） */
-.ai-gen {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8rpx;
-  height: 80rpx;
-  border-radius: var(--r-sm);
-  background-color: var(--accent-soft);
-  color: var(--accent);
-}
-
-.ai-gen-t {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-}
-
-.ai-gen.is-busy {
-  opacity: 0.55;
-}
-
-/* ---------------- AI 标题面板 ---------------- */
-.tt-body {
-  padding: 8rpx var(--page-gutter) calc(env(safe-area-inset-bottom) + 20rpx);
-  display: flex;
-  flex-direction: column;
-  gap: 12rpx;
-}
-
-.tt-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-  padding: 56rpx 0;
-}
-
-.tt-loading-t {
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-}
-
-.tt-loading-s {
-  font-size: var(--fs-2xs);
-  color: var(--faint);
-}
-
-/* 候选：整行可点，标题允许两行——截断看不清就不叫候选了 */
-.tt-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14rpx;
-  padding: 22rpx 24rpx;
-  border-radius: var(--r-sm);
-  background-color: var(--surface-2);
-}
-
-.tt-item:active {
-  background-color: var(--bg-hover);
-}
-
-.tt-item.is-cur {
-  background-color: var(--accent-soft);
-}
-
-.tt-text {
-  flex: 1 1 auto;
-  min-width: 0;
-  font-size: var(--fs-base);
-  line-height: 1.5;
-  color: var(--text);
-}
-
-.tt-tag {
-  flex: 0 0 auto;
-  font-size: var(--fs-2xs);
-  font-weight: 600;
-  color: var(--accent);
-}
-
-.tt-retry {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6rpx;
-  height: 76rpx;
-  color: var(--accent);
-}
-
-.tt-retry-t {
-  font-size: var(--fs-sm);
-  font-weight: 600;
-}
-
-.tt-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-  padding: 40rpx 0;
-}
-
-.tt-empty-t {
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-}
-
-.tt-empty-s {
-  font-size: var(--fs-2xs);
-  color: var(--faint);
-}
-
-.tt-btn {
-  margin-top: 12rpx;
-  height: 76rpx;
-  padding: 0 40rpx;
-  flex: 0 0 auto;
 }
 
 /* ---------------- 符号面板 ---------------- */
@@ -2455,6 +2293,8 @@ onLoad((options: any) => {
 .ai-sub-actions {
   display: flex;
   justify-content: center;
+  /* 两个次要操作（换一批 / 关闭）要能分开点，挤在一起会误触 */
+  gap: 56rpx;
   padding-top: 16rpx;
 }
 

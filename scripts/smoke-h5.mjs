@@ -266,9 +266,22 @@ try {
     await page.locator('.ai-sheet.is-open .sheet-close').click()
     await page.waitForTimeout(300)
 
-    // AI 入口：标题旁的 ✨、标签面板里的「让 AI 生成标签」。
+    // AI 标题/标签已收进 AI 助手：标题行不再挂 ✨，入口在浮动球面板的第三组。
     // 只验入口存在，不真跑——冒烟不该每次都花一次模型调用
-    log('标题有 AI 入口', (await page.locator('.title-ai').count()) === 1)
+    log('标题行不再挂 AI 按钮', (await page.locator('.title-ai').count()) === 0)
+    await page.locator('.ai-fab').first().click()
+    await page.waitForTimeout(700)
+    log(
+      'AI 助手有「标题与标签」组',
+      (await page.locator('.ai-group', { hasText: '标题与标签' }).count()) === 1,
+    )
+    log(
+      'AI 助手含 AI 标题 / AI 标签',
+      (await page.locator('.ai-act', { hasText: 'AI 标题' }).count()) === 1 &&
+        (await page.locator('.ai-act', { hasText: 'AI 标签' }).count()) === 1,
+    )
+    await page.locator('.ai-sheet.is-open .sheet-x').click()
+    await page.waitForTimeout(300)
     await page.locator('.meta-btn').nth(1).click()
     await page.waitForTimeout(600)
     log('标签有 AI 入口', (await page.locator('.ai-gen').count()) === 1)
