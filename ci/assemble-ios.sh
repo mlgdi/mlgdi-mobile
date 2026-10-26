@@ -145,8 +145,34 @@ echo "scheme: $SCHEME_DIR/HBuilder.xcscheme"
 log "7/8 pod install"
 cd "$HELLO"
 if [ -f Podfile ]; then
-  # Podfile 的 subspec 列表决定本工程集成的模块（CameraGallery / File / XmlHttpRequest…）。
-  # 先直连 CDN 装（快），失败再拉全量 spec 重试（慢但稳）。
+  # 裁模块：SDK 默认把二十多个模块全带上，其中 Geolocation-Tencent 是 UTS 版
+  # （Swift 6 编译，链接期报 `_swift_coroFrameAlloc` undefined）。
+  # 我们只用 Core + 文件/相册/网络/存储这几块，裁到最小集合既避开这个坑，
+  # 也把包体积压下来。
+  python3 - "$HELLO/Podfile" <<'PY'
+import re
+import sys
+
+path = sys.argv[1]
+src = open(path, encoding="utf-8").read()
+keep = [
+    "Core",          # 运行时本体，必需
+    "File",          # 文件系统（选 .md / plus.io）
+    "CameraGallery", # 拍照与相册（碎片投递附图）
+    "XMLHttpRequest",# 网络请求
+    "Zip",           # Core 的解压依赖
+    "Sqlite",        # App 端本地存储后端
+    "Log",           # 日志，排障要用
+    "Canvas",        # 视图层兜底（mp-html 渲染富文本）
+]
+block = "uniapp_subspecs = [\n" + "".join(f"  '{name}',\n" for name in keep) + "]"
+new, count = re.subn(r"uniapp_subspecs = \[.*?\n\]", block, src, count=1, flags=re.S)
+if not count:
+    sys.exit("Podfile 里没找到 uniapp_subspecs 数组，SDK 结构可能变了")
+open(path, "w", encoding="utf-8").write(new)
+print("subspecs:", ", ".join(keep))
+PY
+  # 先直连 CDN 装（快），失败再拉全量 spec 重试（慢但稳）
   pod install || pod install --repo-update
 else
   dump_and_die "没有 Podfile：这个 SDK 版本不是 Pod 方式集成，脚本需要改"
