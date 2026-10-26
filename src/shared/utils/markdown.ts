@@ -145,9 +145,29 @@ md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
     : self.renderToken(tokens, idx, options)
 }
 
+/** 中日韩汉字 + 全角标点。用于判断软换行两侧是否都是中文 */
+const CJK = '\\u4e00-\\u9fa5\\u3000-\\u303f\\uff01-\\uff60\\uffe0-\\uffe6'
+
+/**
+ * 压缩中文软换行留下的空格。
+ *
+ * `breaks: false` 时 markdown 的软换行渲染成 `\n`，浏览器当空格处理：
+ * 中文段落里就会出现「组织方式。 两个人」这种莫名其妙的分隔（英文需要空格，
+ * 中文不需要）。这里只处理「中文 + 换行 + 中文」，且**跳过 pre/code**——
+ * 代码块里的换行是有意义的。
+ */
+function tightenCjk(html: string): string {
+  const seg = new RegExp(`([${CJK}])[ \\t]*\\n[ \\t]*([${CJK}])`, 'g')
+  // 奇偶交替：split 带捕获组时，奇数下标是被保护的原样片段
+  return html
+    .split(/(<pre[\s\S]*?<\/pre>|<code[\s\S]*?<\/code>)/g)
+    .map((part, i) => (i % 2 === 1 ? part : part.replace(seg, '$1$2')))
+    .join('')
+}
+
 export function renderMarkdown(body: string): RenderResult {
   const env: { toc?: TocItem[] } = {}
-  const html = md.render(body || '', env)
+  const html = tightenCjk(md.render(body || '', env))
   return { html, toc: env.toc || [] }
 }
 

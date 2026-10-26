@@ -434,7 +434,9 @@ onLoad((options: any) => {
 .a-rule {
   height: 1rpx;
   background-color: var(--line);
-  margin: 28rpx 0 8rpx;
+  /* 下侧 24rpx：首个标题的 margin-top 被 `*:first-child` 归零，
+     不留间距的话标题会贴着分隔线 */
+  margin: 28rpx 0 24rpx;
 }
 
 /* ---------------- 正文排版（对齐 Web .prose） ----------------
