@@ -251,7 +251,7 @@ function isOn(row: Row): boolean {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: calc(env(safe-area-inset-top) + 20rpx) 28rpx 20rpx 36rpx;
+  padding: calc(var(--safe-top, 0px) + 20rpx) 28rpx 20rpx 36rpx;
 }
 
 .brand {

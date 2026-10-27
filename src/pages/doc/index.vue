@@ -637,8 +637,8 @@ onUnload(() => {
   position: fixed;
   left: 0;
   right: 0;
-  /* 顶栏 88rpx + 安全区：进度条贴在顶栏下沿 */
-  top: calc(env(safe-area-inset-top) + 88rpx);
+  /* 顶栏高 + 安全区：进度条贴在顶栏下沿（高度走统一变量，别写死） */
+  top: calc(var(--safe-top, 0px) + var(--topbar-h));
   height: 2rpx;
   z-index: 79;
   background-color: transparent;
@@ -659,7 +659,8 @@ onUnload(() => {
 
 .menu-pop {
   position: fixed;
-  top: calc(env(safe-area-inset-top) + 96rpx);
+  /* 顶栏下沿再留一点点：菜单不要和标题贴在一起 */
+  top: calc(var(--safe-top, 0px) + var(--topbar-h) + 8rpx);
   right: 24rpx;
   z-index: 78;
   width: 380rpx;

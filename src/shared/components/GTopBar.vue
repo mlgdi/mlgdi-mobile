@@ -53,12 +53,15 @@ const emit = defineEmits<{ (e: 'back'): void; (e: 'menu'): void }>()
   display: flex;
   align-items: center;
   gap: 8rpx;
-  height: calc(88rpx + env(safe-area-inset-top));
+  /* 高度 = 内容高 + 安全区；box-sizing 必须 border-box，
+     否则 padding-top 会在 height 之外再长一截（曾经就是这样多出一条空白） */
+  box-sizing: border-box;
+  height: calc(var(--topbar-h) + var(--safe-top, 0px));
   padding: 0 32rpx;
-  /* 顶栏自带状态栏安全区：navigationStyle: custom 下每个页面都要躲开刘海，
-     之前只有库列表页自己垫了 .safe-top，其它页面顶栏被系统状态栏压住。
-     收进组件里后，页面不需要再各自处理。 */
-  padding-top: env(safe-area-inset-top);
+  /* 安全区由 App.vue 的 applySafeTop() 统一算：
+     App 端 webview 已经让开状态栏，这里就是 0；H5 端取 env()。
+     组件里不再直接写 env()——那会和已让开的状态栏重复计算。 */
+  padding-top: var(--safe-top, 0px);
   background-color: transparent;
   border-bottom: 1rpx solid transparent;
   transition:

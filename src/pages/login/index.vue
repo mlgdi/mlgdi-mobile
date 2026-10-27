@@ -83,7 +83,7 @@ async function submit(): Promise<void> {
 <style scoped>
 .wrap {
   padding: 0 22px;
-  padding-top: calc(env(safe-area-inset-top) + 96px);
+  padding-top: calc(var(--safe-top, 0px) + 96px);
   display: flex;
   flex-direction: column;
 }
