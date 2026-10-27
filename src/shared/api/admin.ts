@@ -49,3 +49,61 @@ export function saveSite(body: {
 export function saveColumns(items: AdminColumn[]): Promise<{ ok: boolean; message?: string }> {
   return request({ method: 'PUT', path: '/api/v1/admin/columns', body: { items } })
 }
+
+/* ---------------- AI 引擎与工作流（admin） ---------------- */
+
+export interface AdminAi {
+  workflow_engine: string
+  llm_api_base: string
+  llm_model: string
+  llm_image_model: string
+  llm_timeout: number
+  has_key: boolean
+  key_hint: string
+}
+
+export interface AdminAiTestResult {
+  ok: boolean
+  latency_ms?: number
+  reply?: string
+  reason?: string
+}
+
+export interface AdminWorkflow {
+  key: string
+  name: string
+  description: string
+  prompt: string
+  scope: string
+  enabled: boolean
+  builtin: boolean
+}
+
+export function adminAi(): Promise<AdminAi> {
+  return request({ path: '/api/v1/admin/ai' })
+}
+
+/** 密钥传空 = 保持原值（后端不明文回传，前端也不该回传） */
+export function saveAdminAi(body: {
+  workflow_engine?: string
+  llm_api_base?: string
+  llm_model?: string
+  llm_image_model?: string
+  llm_timeout?: number
+  llm_api_key?: string
+}): Promise<{ ok: boolean; message?: string }> {
+  return request({ method: 'PUT', path: '/api/v1/admin/ai', body })
+}
+
+export function testAdminAi(): Promise<AdminAiTestResult> {
+  return request({ method: 'POST', path: '/api/v1/admin/ai/test' })
+}
+
+export function adminWorkflows(): Promise<{ engine: string; items: AdminWorkflow[] }> {
+  return request({ path: '/api/v1/admin/workflows' })
+}
+
+/** 整份回写 workflows.yaml（原子写 + 立即热加载） */
+export function saveWorkflows(items: AdminWorkflow[]): Promise<{ ok: boolean; message?: string }> {
+  return request({ method: 'PUT', path: '/api/v1/admin/workflows', body: { items } })
+}
