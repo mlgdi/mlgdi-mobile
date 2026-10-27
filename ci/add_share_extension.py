@@ -191,9 +191,11 @@ def main() -> int:
     s = s[:idx] + f"\t\t\t\t{U['embed_phase']} /* Embed App Extensions */,\n" + s[idx:]
 
     # ---- native target + configurations ----------------------------------
-    # inherit deployment target / version from the main target's Release config
+    # deployment target：**固定 13.0**，不要从工程里抓——
+    # SDK 的 pbxproj 里有历史遗留的 6.0（第一个命中就是它），
+    # 而 Swift 最低要求 iOS 7，6.0 会让扩展编译直接失败（真实踩过）。
     m = re.search(r"IPHONEOS_DEPLOYMENT_TARGET = ([\d.]+)", s)
-    deployment = m.group(1) if m else "12.0"
+    deployment = "13.0"
     m = re.search(r"MARKETING_VERSION = ([\w.]+);", s)
     marketing = m.group(1) if m else "1.0"
     m = re.search(r"CURRENT_PROJECT_VERSION = (\w+);", s)
