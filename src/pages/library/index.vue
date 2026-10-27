@@ -173,7 +173,6 @@
       :active-sub="activeSub"
       @close="sideOpen = false"
       @select="onSideSelect"
-      @nav="onSideNav"
     />
   </view>
 </template>
@@ -364,11 +363,6 @@ function onSideSelect(payload: { code: TabCode; sub: string }): void {
   } catch {
     /* 存不进就本次会话有效 */
   }
-}
-
-function onSideNav(target: 'inbox' | 'settings'): void {
-  sideOpen.value = false
-  uni.navigateTo({ url: `/pages/${target}/index` })
 }
 
 function open(item: FlatDoc): void {

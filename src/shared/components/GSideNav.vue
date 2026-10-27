@@ -28,7 +28,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'select', payload: { code: TabCode; sub: string }): void
-  (e: 'nav', target: 'inbox' | 'settings'): void
 }>()
 
 const notes = useNotesStore()
@@ -130,21 +129,6 @@ function isOn(row: Row): boolean {
       </view>
     </view>
 
-    <view class="nav">
-      <view :class="['nav-item', active === 'HOME' ? 'nav-on' : '']" @click="emit('select', { code: 'HOME', sub: '' })">
-        <GIcon name="home" :size="34" :weight="2" />
-        <text class="nav-t">知识库</text>
-      </view>
-      <view class="nav-item" @click="emit('nav', 'inbox')">
-        <GIcon name="inbox" :size="34" :weight="2" />
-        <text class="nav-t">碎片箱</text>
-      </view>
-      <view class="nav-item" @click="emit('nav', 'settings')">
-        <GIcon name="settings" :size="34" :weight="2" />
-        <text class="nav-t">设置</text>
-      </view>
-    </view>
-
     <scroll-view class="tree" scroll-y>
       <view
         v-for="row in rows"
@@ -219,40 +203,10 @@ function isOn(row: Row): boolean {
   color: var(--text-2);
 }
 
-.nav {
-  flex: 0 0 auto;
-  padding: 0 20rpx;
-}
-
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 18rpx;
-  height: 92rpx;
-  padding: 0 22rpx;
-  border-radius: var(--r-sm);
-  color: var(--text);
-}
-
-.nav-item:active {
-  background-color: var(--bg-hover);
-}
-
-.nav-item.nav-on {
-  background-color: var(--c-soft, var(--accent-soft));
-}
-
-.nav-t {
-  font-size: 30rpx;
-  font-weight: 500;
-}
-
 .tree {
   flex: 1 1 auto;
-  margin-top: 20rpx;
   padding: 0 20rpx;
   box-sizing: border-box;
-  border-top: 1rpx solid var(--line);
 }
 
 .row {
@@ -268,8 +222,8 @@ function isOn(row: Row): boolean {
   background-color: var(--bg-hover);
 }
 
-.row-col {
-  margin-top: 14rpx;
+.row-col:first-child {
+  margin-top: 0;
 }
 
 .row-on {
