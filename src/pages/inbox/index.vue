@@ -39,6 +39,10 @@
           <GIcon name="clipboard" :size="28" />
           <text class="chip-text">粘贴</text>
         </view>
+        <view class="chip" @click="parseUrl">
+          <GIcon name="link" :size="28" />
+          <text class="chip-text">解析链接</text>
+        </view>
         <view class="topbar-spacer" />
         <button class="btn send" :disabled="!canSend || sending" @click="submit">
           {{ sending ? '投递中…' : '投递' }}
@@ -108,6 +112,7 @@
         {{ loadingMore ? '加载中…' : `加载更多（${list.length}/${total}）` }}
       </text>
       <text v-else class="pager-end">没有更多了 · 共 {{ total }} 条</text>
+      <text class="pager-clear" @click="clearCurrent">清除</text>
     </view>
 
     <!-- 批量条 -->
@@ -132,7 +137,7 @@
 import { computed, ref } from 'vue'
 import GTopBar from '../../shared/components/GTopBar.vue'
 import GIcon from '../../shared/components/GIcon.vue'
-import { onReachBottom, onShow } from '@dcloudio/uni-app'
+import { onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
 import {
   capture,
   dispatch,
@@ -273,6 +278,82 @@ function toggleSelect(item: InboxItem): void {
   else selected.value.push(item.id)
 }
 
+/**
+ * 解析链接：投一条 source_type=url 的碎片，后端会自动
+ * 抓网页 → AI 清理成正文 → 图片落盘（webclip.clip_url 后台任务）。
+ * 弹窗输入框预填剪贴板里的 URL（有就用）。
+ */
+function parseUrl(): void {
+  void (async () => {
+    let prefill = ''
+    try {
+      const text = String(await readClipboard()).trim()
+      if (/^https?:\/\//i.test(text)) prefill = text
+    } catch {
+      /* 读不到就不预填 */
+    }
+    uni.showModal({
+      title: '解析网页链接',
+      editable: true,
+      placeholderText: '粘贴 URL，正文与图片会被抓回来',
+      content: prefill,
+      success: async (res) => {
+        if (!res.confirm) return
+        const url = (res.content || '').trim()
+        if (!/^https?:\/\/\S+$/i.test(url)) {
+          uni.showToast({ title: '不是有效的链接', icon: 'none' })
+          return
+        }
+        try {
+          await capture({ content: url, source_type: 'url', source_url: url })
+          uni.showToast({ title: '开始抓取，稍候刷新查看', icon: 'none' })
+          if (activeStatus.value !== 'captured' && activeStatus.value !== '') {
+            activeStatus.value = 'captured'
+          }
+          await load()
+        } catch (err: any) {
+          uni.showToast({ title: err?.reason || '投递失败', icon: 'none' })
+        }
+      },
+    })
+  })()
+}
+
+/** 清除：把当前筛选下的碎片全部删除（逐条调删除接口），先确认 */
+function clearCurrent(): void {
+  uni.showModal({
+    title: '清空当前列表？',
+    content: `将删除${activeStatus.value ? '「' + (filters.find((f) => f.value === activeStatus.value)?.label || '') + '」状态下' : '全部'}的 ${total.value} 条碎片，不可恢复`,
+    confirmText: '清除',
+    cancelText: '取消',
+    success: async (res) => {
+      if (!res.confirm) return
+      working.value = true
+      let n = 0
+      try {
+        // 分页拉全量再逐条删（接口只有单条删除）
+        for (let offset = 0; ; offset += 200) {
+          const page = await apiItems(activeStatus.value || undefined, 200, offset)
+          const batch = page.items.filter((i) => !selected.value.includes(i.id))
+          if (!batch.length) break
+          for (const it of batch) {
+            await removeItem(it.id)
+            n += 1
+          }
+          if (offset + 200 >= page.total) break
+        }
+        uni.showToast({ title: `已清除 ${n} 条`, icon: 'none' })
+        selected.value = []
+        await load()
+      } catch (err: any) {
+        uni.showToast({ title: err?.reason || `清除失败（已删 ${n} 条）`, icon: 'none' })
+      } finally {
+        working.value = false
+      }
+    },
+  })
+}
+
 function remove(item: InboxItem): void {
   uni.showModal({
     title: '删除碎片',
@@ -337,6 +418,15 @@ onReachBottom(() => {
   loadMore()
 })
 
+/** 下拉刷新：之前没注册处理器，开了 enablePullDownRefresh 也一直没响应 */
+onPullDownRefresh(async () => {
+  try {
+    await load()
+  } finally {
+    uni.stopPullDownRefresh()
+  }
+})
+
 onShow(() => {
   load()
 })
@@ -361,6 +451,12 @@ onShow(() => {
 .pager-end {
   font-size: 24rpx;
   color: var(--faint);
+}
+
+.pager-clear {
+  font-size: 24rpx;
+  color: #d64541;
+  padding: 10rpx 24rpx;
 }
 
 .compose {

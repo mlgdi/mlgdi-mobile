@@ -38,13 +38,10 @@ const dateText = computed(() => {
   const raw = props.doc.updated_at
   if (!raw) return ''
   const d = new Date(raw.replace(' ', 'T'))
-  if (Number.isNaN(d.getTime())) return raw.slice(5, 10)
-  const now = new Date()
-  if (d.toDateString() === now.toDateString()) return '今天'
-  const diff = (now.getTime() - d.getTime()) / 86400000
-  if (diff < 1) return '今天'
-  if (diff < 7) return `${Math.floor(diff)} 天前`
-  return `${d.getMonth() + 1}月${d.getDate()}日`
+  if (Number.isNaN(d.getTime())) return raw.slice(5, 16)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  // 全量「2026-10-26 23:10」：跨天的碎片靠「今天」分不清先后（用户指定）
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 })
 
 const leadLabel = computed(() => {

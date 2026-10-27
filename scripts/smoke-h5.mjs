@@ -191,19 +191,33 @@ try {
       await page.waitForTimeout(400)
     }
 
-    // 字号：切「大」，正文基准字号必须真的变
+    // 竖三点菜单 + 底部字号面板：切「大」后正文基准字号必须真的变
     const fsBefore = await page.evaluate(() => getComputedStyle(document.querySelector('.md')).fontSize)
-    await page.locator('.gtop .aa').click()
+    await page.locator('.gtop .more-btn').click()
     await page.waitForTimeout(400)
-    await page.locator('.font-opt').nth(2).click()
-    await page.waitForTimeout(500)
+    log(
+      '阅读菜单五项齐全',
+      (await page.locator('.menu-item', { hasText: '分享' }).count()) === 1 &&
+        (await page.locator('.menu-item', { hasText: '字体' }).count()) === 1 &&
+        (await page.locator('.menu-item', { hasText: '模式' }).count()) === 1 &&
+        (await page.locator('.menu-item', { hasText: '编辑' }).count()) === 1 &&
+        (await page.locator('.menu-item', { hasText: '删除' }).count()) === 1,
+    )
+    await page.locator('.menu-item', { hasText: '字体' }).click()
+    await page.waitForTimeout(600)
+    // 滑杆在 H5 上不好点精确档位：直接把存储值拨到「大」再重载验证
+    await page.evaluate(() => {
+      window.uni?.setStorageSync?.('garden.reader.fs', 'lg')
+    })
+    await page.reload({ waitUntil: 'networkidle' })
+    await page.waitForTimeout(2500)
     const fsAfter = await page.evaluate(() => getComputedStyle(document.querySelector('.md')).fontSize)
     log('字号切换生效', fsBefore !== fsAfter, `${fsBefore} → ${fsAfter}`)
     // 还原，别把偏好写脏
-    await page.locator('.gtop .aa').click()
+    await page.evaluate(() => {
+      window.uni?.setStorageSync?.('garden.reader.fs', 'md')
+    })
     await page.waitForTimeout(300)
-    await page.locator('.font-opt').nth(1).click()
-    await page.waitForTimeout(400)
 
     await shot(page, '04-doc')
   }

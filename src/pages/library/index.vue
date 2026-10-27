@@ -1,5 +1,9 @@
 <template>
-  <view :class="['page', `theme-${resolvedTheme}`]">
+  <view
+    :class="['page', `theme-${resolvedTheme}`]"
+    @touchstart="onSwipeStart"
+    @touchend="onSwipeEnd"
+  >
     <!-- 顶栏：品牌左对齐；右侧依次 搜索 / 碎片箱 / 设置 -->
     <view class="top-fixed">
             <GTopBar :elevated="scrolled" menu @menu="sideOpen = true">
@@ -330,6 +334,38 @@ const homeSub = computed(() =>
 )
 
 /** 子类 chip 的配色跟随当前栏目 */
+/* ---------------- 横滑手势 ----------------
+   侧栏关着时：
+   · 左缘起右滑 → 开侧栏；主页左滑 → 到 M
+   · 栏目页左右滑 → 相邻栏目（顺序 首页 M L G D I）
+   阈值：横向 60px 起效，且 |dx| > 1.5|dy|（避免吃掉纵向滚动）。 */
+const SWIPE_ORDER: TabCode[] = ['HOME', 'M', 'L', 'G', 'D', 'I']
+let swipeX = 0
+let swipeY = 0
+
+function onSwipeStart(e: any): void {
+  swipeX = e?.touches?.[0]?.clientX ?? 0
+  swipeY = e?.touches?.[0]?.clientY ?? 0
+}
+
+function onSwipeEnd(e: any): void {
+  if (sideOpen.value || searching.value) return
+  const t = e?.changedTouches?.[0]
+  if (!t) return
+  const dx = t.clientX - swipeX
+  const dy = t.clientY - swipeY
+  if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return
+
+  if (dx > 0 && swipeX < 48) {
+    sideOpen.value = true
+    return
+  }
+  const idx = SWIPE_ORDER.indexOf(activeTab.value)
+  const next = idx + (dx < 0 ? 1 : -1)
+  if (next < 0 || next >= SWIPE_ORDER.length) return
+  switchColumn(SWIPE_ORDER[next])
+}
+
 function switchColumn(code: TabCode): void {
   activeTab.value = code
   activeSub.value = ''

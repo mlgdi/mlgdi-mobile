@@ -10,7 +10,7 @@
  * 数据：notes.roots 本来就是完整递归树，过滤不再受「只取一级」限制
  * （columnDocs 的 startsWith 前缀匹配对任意深度都成立）。
  */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { COLUMNS, columnByCode, tint, type ColumnCode } from '../config/columns'
 import { useNotesStore } from '../store/notes'
 import { useSiteStore } from '../store/site'
@@ -33,6 +33,44 @@ const emit = defineEmits<{
 const notes = useNotesStore()
 const siteStore = useSiteStore()
 const isDark = computed(() => resolvedTheme.value === 'dark')
+
+/** 收起/展开状态：key 是目录完整路径。默认收起，选中路径的祖先自动展开 */
+const collapsed = ref<Set<string>>(new Set())
+
+function hasChildren(path: string): boolean {
+  for (const r of notes.roots) {
+    const stack = [r]
+    while (stack.length) {
+      const nd = stack.pop()!
+      if (nd.path === path) return (nd.folders ?? []).length > 0
+      stack.push(...(nd.folders ?? []))
+    }
+  }
+  return false
+}
+
+function toggleFold(path: string): void {
+  const next = new Set(collapsed.value)
+  if (next.has(path)) next.delete(path)
+  else next.add(path)
+  collapsed.value = next
+}
+
+/** 打开抽屉时，把当前选中路径的祖先目录全部展开（否则深层选中项看不见） */
+function expandAncestorsOf(sub: string): void {
+  if (!sub) return
+  const parts = sub.split('/')
+  for (let i = 1; i < parts.length; i++) {
+    collapsed.value.delete(parts.slice(0, i).join('/'))
+  }
+}
+
+watch(
+  () => props.open,
+  (open) => {
+    if (open) expandAncestorsOf(props.activeSub)
+  },
+)
 
 function countDocs(node: { docs: unknown[]; folders: any[] }): number {
   return node.docs.length + node.folders.reduce((s: number, f: any) => s + countDocs(f), 0)
@@ -92,14 +130,30 @@ const rows = computed<Row[]>(() =>
           main,
           ink,
         },
-        ...walk(f.folders ?? [], depth + 1),
+        // 被收起的目录不再下钻
+        ...(collapsed.value.has(f.path) ? [] : walk(f.folders ?? [], depth + 1)),
       ])
     return [colRow, ...walk(root.folders, 1)]
   }),
 )
 
-function pickCol(row: { code: ColumnCode; path: string }): void {
+function pickCol(row: { code: ColumnCode; path: string; isCol: boolean }): void {
   emit('select', { code: row.code, sub: row.path })
+  if (!row.isCol && hasChildren(row.path)) toggleFold(row.path)
+}
+
+/** 侧栏手势：从右往左滑（横向位移 > 60px 且明显大于纵向）收起 */
+let sx = 0
+let sy = 0
+function onTS(e: any): void {
+  sx = e?.touches?.[0]?.clientX ?? 0
+  sy = e?.touches?.[0]?.clientY ?? 0
+}
+
+function onTE(e: any): void {
+  const dx = (e?.changedTouches?.[0]?.clientX ?? 0) - sx
+  const dy = (e?.changedTouches?.[0]?.clientY ?? 0) - sy
+  if (dx < -60 && Math.abs(dx) > Math.abs(dy) * 1.5) emit('close')
 }
 
 function rowStyle(row: { code: ColumnCode; main: string; ink: string }): Record<string, string> {
@@ -121,7 +175,11 @@ function isOn(row: Row): boolean {
 
 <template>
   <view v-if="open" class="mask" @click="emit('close')" />
-  <view :class="['sidenav', { 'is-open': open }]">
+  <view
+    :class="['sidenav', { 'is-open': open }]"
+    @touchstart="onTS"
+    @touchend="onTE"
+  >
     <view class="head">
       <text class="brand">渡己・Mlgdi</text>
       <view class="close" @click="emit('close')">
@@ -146,6 +204,13 @@ function isOn(row: Row): boolean {
           <text v-if="row.isCol && row.desc" class="row-desc">{{ row.desc }}</text>
         </view>
         <text class="row-count">{{ row.count }}</text>
+        <GIcon
+          v-if="!row.isCol && hasChildren(row.path)"
+          name="chevron-down"
+          :size="26"
+          :weight="2.2"
+          :class="['fold-ico', collapsed.has(row.path) ? 'is-folded' : '']"
+        />
       </view>
       <view class="tree-tail" />
     </scroll-view>
@@ -212,9 +277,9 @@ function isOn(row: Row): boolean {
 .row {
   display: flex;
   align-items: center;
-  gap: 16rpx;
-  min-height: 84rpx;
-  padding: 8rpx 18rpx;
+  gap: 14rpx;
+  min-height: 72rpx;
+  padding: 4rpx 16rpx;
   border-radius: var(--r-sm);
 }
 
@@ -222,8 +287,23 @@ function isOn(row: Row): boolean {
   background-color: var(--bg-hover);
 }
 
+.row-col {
+  margin-top: 10rpx;
+}
+
 .row-col:first-child {
   margin-top: 0;
+}
+
+/* 折叠指示：收起时指向右 */
+.fold-ico {
+  flex: 0 0 auto;
+  color: var(--faint);
+  transition: transform 160ms ease;
+}
+
+.fold-ico.is-folded {
+  transform: rotate(-90deg);
 }
 
 .row-on {

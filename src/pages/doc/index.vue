@@ -2,43 +2,78 @@
   <view :class="['page', `theme-${resolvedTheme}`]">
     <GTopBar back :title="scrolled ? doc?.title || '阅读' : ''" :elevated="scrolled" @back="back">
       <template #actions>
-        <!-- Aa 是唯一允许的「文字图标」：字号设置的标准符号，SVG 画出来反而不好认 -->
-        <view class="icon-btn aa" @click.stop="toggleFont">
-          <text class="aa-text">Aa</text>
-        </view>
         <view v-if="toc.length > 1" class="icon-btn toc-btn" @click="openToc">
           <GIcon name="list" :size="38" />
         </view>
-        <view v-if="canEdit && doc" class="icon-btn edit-btn" @click="toEdit">
-          <GIcon name="pencil" :size="36" />
+        <!-- 竖三点：阅读页的全部次要动作收进这里 -->
+        <view class="icon-btn more-btn" @click.stop="menuOpen = !menuOpen">
+          <GIcon name="ellipsis" :size="38" />
         </view>
       </template>
     </GTopBar>
 
+    <!-- 阅读菜单：分享 / 字体 / 深浅切换 / 编辑 / 删除 -->
+    <view v-if="menuOpen" class="pop-mask" @click="menuOpen = false" />
+    <view v-if="menuOpen" class="menu-pop">
+      <view class="menu-item" @click="shareDoc">
+        <GIcon name="send" :size="32" />
+        <text class="menu-t">分享</text>
+      </view>
+      <view class="menu-item" @click="openFontSheet">
+        <GIcon name="eye" :size="32" />
+        <text class="menu-t">字体</text>
+      </view>
+      <view class="menu-item" @click="toggleTheme">
+        <GIcon :name="resolvedTheme === 'dark' ? 'sun' : 'moon'" :size="32" />
+        <text class="menu-t">{{ resolvedTheme === 'dark' ? '明亮模式' : '深色模式' }}</text>
+      </view>
+      <view v-if="canEdit && doc" class="menu-item" @click="toEdit">
+        <GIcon name="pencil" :size="32" />
+        <text class="menu-t">编辑</text>
+      </view>
+      <view v-if="canEdit && doc" class="menu-item menu-danger" @click="removeDoc">
+        <GIcon name="trash" :size="32" />
+        <text class="menu-t">删除</text>
+      </view>
+    </view>
+
+    <!-- 字号：底部弹出，滑杆四档（小 / 标准 / 大 / 特大） -->
+    <view v-if="fontSheet" class="sheet-mask" @click="fontSheet = false" />
+    <view :class="['font-sheet', { 'is-open': fontSheet }]">
+      <view class="sheet-grip" />
+      <view class="fs-head">
+        <text class="fs-title">设置字体大小</text>
+        <view class="fs-close" @click="fontSheet = false">
+          <GIcon name="close" :size="30" />
+        </view>
+      </view>
+      <view class="fs-labels">
+        <text
+          v-for="(key, i) in FONT_ORDER"
+          :key="key"
+          :class="['fs-label', fontIdx === i ? 'fs-label-on' : '']"
+        >
+          {{ FONT_SIZES[key].label }}
+        </text>
+      </view>
+      <slider
+        class="fs-slider"
+        :min="0"
+        :max="3"
+        :step="1"
+        :value="fontIdx"
+        activeColor="#0066cc"
+        backgroundColor="var(--line-strong)"
+        block-size="22"
+        @change="onSlideFont"
+      />
+      <text class="fs-tip">只影响正文，标题与界面文字不变</text>
+      <view class="fs-tail" />
+    </view>
+
     <!-- 阅读进度：2rpx 细线，用栏目色，不抢视觉 -->
     <view v-if="doc && progress > 0" class="progress">
       <view class="progress-bar" :style="{ width: progress + '%', background: colMain }" />
-    </view>
-
-    <!-- 字号浮层：顶栏下方右对齐，点任意处关闭 -->
-    <view v-if="fontOpen" class="pop-mask" @click="fontOpen = false" />
-    <view v-if="fontOpen" class="font-pop">
-      <view class="font-row">
-        <text class="font-label">正文字号</text>
-        <text class="font-now">{{ FONT_SIZES[fontSize].label }}</text>
-      </view>
-      <view class="font-opts">
-        <view
-          v-for="opt in FONT_OPTIONS"
-          :key="opt.key"
-          :class="['font-opt', { 'is-on': fontSize === opt.key }]"
-          @click="setFont(opt.key)"
-        >
-          <text class="font-opt-a" :style="{ fontSize: opt.preview }">A</text>
-          <text class="font-opt-l">{{ opt.label }}</text>
-        </view>
-      </view>
-      <text class="font-tip">只影响正文，标题与界面文字不变</text>
     </view>
 
     <view v-if="loading" class="hint">
@@ -157,12 +192,13 @@ import { computed, nextTick, ref } from 'vue'
 import { onLoad, onPageScroll, onUnload } from '@dcloudio/uni-app'
 import GTopBar from '../../shared/components/GTopBar.vue'
 import GIcon from '../../shared/components/GIcon.vue'
-import { doc as apiDoc, type DocDetail } from '../../shared/api/notes'
+import { doc as apiDoc, deleteDoc, type DocDetail } from '../../shared/api/notes'
 import { renderMarkdown, type TocItem } from '../../shared/utils/markdown'
 import { useNotesStore } from '../../shared/store/notes'
 import { columnByPath, tint } from '../../shared/config/columns'
-import { resolvedTheme } from '../../shared/theme'
+import { resolvedTheme, setThemeMode } from '../../shared/theme'
 import { capabilities } from '../../shared/capabilities'
+import { getBaseUrl } from '../../shared/config/server'
 
 const canEdit = capabilities.canEdit
 
@@ -200,6 +236,10 @@ function readFont(): FontKey {
 
 const fontSize = ref<FontKey>(readFont())
 const fontOpen = ref(false)
+/** 竖三点菜单与底部字号面板 */
+const menuOpen = ref(false)
+const fontSheet = ref(false)
+const fontIdx = computed(() => FONT_ORDER.indexOf(fontSize.value))
 /** 代码块原文，复制按钮按 data-code 下标取 */
 const codeBlocks = ref<string[]>([])
 /** 已绑定原生点击监听的容器，避免重复绑 */
@@ -252,7 +292,9 @@ function formatDate(raw: string): string {
   if (Number.isNaN(d.getTime())) return raw.slice(0, 10)
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   const dd = String(d.getDate()).padStart(2, '0')
-  return `${d.getFullYear()}-${mm}-${dd}`
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mi = String(d.getMinutes()).padStart(2, '0')
+  return `${d.getFullYear()}-${mm}-${dd} ${hh}:${mi}`
 }
 
 /** 引用上下文里带着 `[[标题]]` 原文，展示时剥掉方括号更干净 */
@@ -327,8 +369,69 @@ function openDoc(id: string): void {
   uni.navigateTo({ url: `/pages/doc/index?id=${encodeURIComponent(id)}` })
 }
 
-function toggleFont(): void {
-  fontOpen.value = !fontOpen.value
+function openFontSheet(): void {
+  menuOpen.value = false
+  fontSheet.value = true
+}
+
+function toggleTheme(): void {
+  setThemeMode(resolvedTheme.value === 'dark' ? 'light' : 'dark')
+  menuOpen.value = false
+}
+
+/** 分享：App 走系统分享面板；H5 退化为复制链接 */
+function shareDoc(): void {
+  const link = `${getBaseUrl().replace(/\/$/, '')}/doc/${docId.value}`
+  // #ifdef APP-PLUS
+  const plusAny = (globalThis as any).plus
+  if (plusAny?.share?.sendWithSystem) {
+    plusAny.share.sendWithSystem(
+      { content: `${doc.value?.title || '渡己'}\n${link}`, href: link },
+      () => uni.showToast({ title: '已分享', icon: 'none' }),
+      () => uni.setClipboardData({ data: link }),
+    )
+    menuOpen.value = false
+    return
+  }
+  // #endif
+  uni.setClipboardData({
+    data: link,
+    success: () => uni.showToast({ title: '链接已复制', icon: 'none' }),
+  })
+  menuOpen.value = false
+}
+
+/** 删除：二次确认，删完回列表 */
+function removeDoc(): void {
+  if (!doc.value) return
+  menuOpen.value = false
+  uni.showModal({
+    title: '删除这篇文档？',
+    content: `「${doc.value.title}」会进回收站，可在网页端恢复`,
+    confirmText: '删除',
+    cancelText: '取消',
+    success: (res) => {
+      if (!res.confirm) return
+      deleteDoc(docId.value)
+        .then(() => {
+          uni.showToast({ title: '已删除', icon: 'none' })
+          setTimeout(() => {
+            const pages = getCurrentPages()
+            if (pages.length > 1) uni.navigateBack()
+            else uni.reLaunch({ url: '/pages/library/index' })
+          }, 500)
+        })
+        .catch((err: any) =>
+          uni.showToast({ title: err?.reason || '删除失败', icon: 'none' }),
+        )
+    },
+  })
+}
+
+/** 滑杆回调：index → FontKey */
+function onSlideFont(e: any): void {
+  const idx = Number(e?.detail?.value ?? 1)
+  setFont(FONT_ORDER[idx] || 'md')
 }
 
 function setFont(key: FontKey): void {
@@ -338,7 +441,6 @@ function setFont(key: FontKey): void {
   } catch {
     /* 存不进也不影响本次阅读 */
   }
-  fontOpen.value = false
   // 字号变了整篇高度都变，目录位置必须重量
   void nextTick().then(() => {
     setTimeout(measure, 120)
@@ -547,121 +649,140 @@ onUnload(() => {
   transition: width 120ms linear;
 }
 
-/* ---------------- Aa（字号入口） ---------------- */
-.aa {
-  /* 文字图标：比同尺寸 SVG 视觉重量略轻，单独调字号 */
-  width: 76rpx;
-}
-
-.aa-text {
-  font-size: 30rpx;
-  font-weight: 700;
-  letter-spacing: -0.4rpx;
-  color: var(--text-2);
-  line-height: 1;
-}
-
-/* ---------------- 字号浮层 ---------------- */
+/* ---------------- 竖三点菜单 ---------------- */
 .pop-mask {
   position: fixed;
   inset: 0;
   z-index: 77;
-  /* 极淡遮罩：不给底的话，被压住的标题和面板糊成一片 */
-  background-color: rgba(0, 0, 0, 0.08);
+  background-color: rgba(0, 0, 0, 0.12);
 }
 
-.font-pop {
+.menu-pop {
   position: fixed;
   top: calc(env(safe-area-inset-top) + 96rpx);
   right: 24rpx;
   z-index: 78;
-  width: 520rpx;
-  padding: 24rpx;
+  width: 380rpx;
+  padding: 10rpx;
   background-color: var(--surface);
   border: 1rpx solid var(--line);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-lg);
 }
 
-/* 指向 Aa 的小三角 */
-.font-pop::before {
-  content: '';
-  position: absolute;
-  top: -12rpx;
-  /* 对准 Aa 中心：从右数 编辑 88 + 目录 88 + Aa 半宽 38 = 214rpx，
-     卡片本身 right 24rpx，所以三角距卡片右缘 214 − 24 = 190rpx */
-  right: 237rpx;
-  width: 22rpx;
-  height: 22rpx;
-  background-color: var(--surface);
-  border-left: 1rpx solid var(--line);
-  border-top: 1rpx solid var(--line);
-  transform: rotate(45deg);
-}
-
-.font-row {
+.menu-item {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 20rpx;
+  align-items: center;
+  gap: 18rpx;
+  height: 88rpx;
+  padding: 0 22rpx;
+  border-radius: var(--r-sm);
+  color: var(--text);
 }
 
-.font-label {
-  font-size: var(--fs-sm);
+.menu-item:active {
+  background-color: var(--bg-hover);
+}
+
+.menu-t {
+  font-size: 29rpx;
+  font-weight: 500;
+}
+
+.menu-danger,
+.menu-danger .menu-t {
+  color: #d64541;
+}
+
+/* ---------------- 字号底部面板（滑杆四档） ---------------- */
+.sheet-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background-color: rgba(0, 0, 0, 0.4);
+}
+
+.font-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 91;
+  background-color: var(--surface);
+  border-radius: var(--r-lg) var(--r-lg) 0 0;
+  padding: 14rpx 36rpx 0;
+  transform: translateY(105%);
+  transition: transform 240ms cubic-bezier(0.3, 0.9, 0.4, 1);
+}
+
+.font-sheet.is-open {
+  transform: translateY(0);
+}
+
+.sheet-grip {
+  width: 72rpx;
+  height: 8rpx;
+  border-radius: 9999rpx;
+  background-color: var(--line-strong);
+  margin: 0 auto 18rpx;
+}
+
+.fs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fs-title {
+  font-size: 32rpx;
   font-weight: 600;
   color: var(--text);
 }
 
-.font-now {
-  font-size: var(--fs-2xs);
-  color: var(--faint);
-}
-
-.font-opts {
+.fs-close {
+  width: 60rpx;
+  height: 60rpx;
   display: flex;
-  gap: 12rpx;
-}
-
-.font-opt {
-  flex: 1 1 0;
-  height: 104rpx;
-  border-radius: var(--r-sm);
-  border: 1rpx solid var(--line);
-  background-color: var(--bg);
-  display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6rpx;
-}
-
-.font-opt-a {
-  font-weight: 600;
-  line-height: 1;
   color: var(--text-2);
 }
 
-.font-opt-l {
-  font-size: var(--fs-2xs);
+/* 四档标签与滑杆刻度对齐：两端 justify-between + 中间均分 */
+.fs-labels {
+  display: flex;
+  justify-content: space-between;
+  margin: 26rpx 6rpx 0;
+}
+
+.fs-label {
+  flex: 1 1 0;
+  text-align: center;
+  font-size: 26rpx;
   color: var(--faint);
+  transition: color 150ms ease;
 }
 
-.font-opt.is-on {
-  background-color: var(--accent-soft);
-  border-color: var(--accent);
-}
-
-.font-opt.is-on .font-opt-a,
-.font-opt.is-on .font-opt-l {
+.fs-label-on {
   color: var(--accent);
+  font-weight: 600;
 }
 
-.font-tip {
+.fs-slider {
+  margin: 4rpx 6rpx 0;
+}
+
+.fs-tip {
   display: block;
-  margin-top: 18rpx;
+  padding: 10rpx 0 26rpx;
   font-size: var(--fs-2xs);
   color: var(--faint);
 }
+
+.fs-tail {
+  height: calc(env(safe-area-inset-bottom) + 10rpx);
+}
+
 
 /* ---------------- 头部 ---------------- */
 .article {
