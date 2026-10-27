@@ -161,7 +161,18 @@ try {
   await shot(page, '03-library')
 
   // ---- 3. 阅读 ----
-  const firstItem = page.locator('.doc').first()
+  // 第一篇可能是几字的短碎片（正文断言会误报）：挑字数 ≥ 30 的第一篇
+  const pickDoc = page.evaluate(() => {
+    const items = [...document.querySelectorAll('.doc')]
+    for (let i = 0; i < items.length; i++) {
+      const meta = items[i].querySelector('.doc-meta')?.textContent || ''
+      const m = meta.match(/(\d+) 字/)
+      if (m && Number(m[1]) >= 30) return i
+    }
+    return 0
+  })
+  const docIndex = await pickDoc
+  const firstItem = page.locator('.doc').nth(docIndex)
   const hasItem = (await firstItem.count()) > 0
   log('库列表有内容', hasItem)
   if (hasItem) {

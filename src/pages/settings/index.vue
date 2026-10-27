@@ -166,11 +166,11 @@
     </template>
 
     <!-- ============ 二级：栏目与小类 ============
-         移动原生操作：栏目是一行，点开底部编辑器改「名称/简介/描述/小类别名」，
-         每个编辑器独立保存（整份回写，只动了这一栏的数据）。 -->
+         移动原生：栏目是一行，点进「三级面板」全屏编辑（名称/简介/描述/小类别名），
+         每栏单独保存（整份回写，只动这一栏的数据）。 -->
     <template v-else-if="panel === 'columns'">
       <view class="section">
-        <text class="section-label muted">点栏目进入编辑；改动在编辑器里单独保存</text>
+        <text class="section-label muted">点栏目进入编辑；改动在编辑页单独保存</text>
         <view class="card">
           <template v-for="(col, i) in cols" :key="col.code">
             <view v-if="i > 0" class="divider" />
@@ -188,50 +188,42 @@
           <view v-if="!cols.length" class="cell"><text class="muted">加载中…</text></view>
         </view>
       </view>
+    </template>
 
-      <!-- 栏目编辑器（底部弹出） -->
-      <view v-if="colEditor !== null" class="sheet-mask" @click="colEditor = null" />
-      <view :class="['col-sheet', { 'is-open': colEditor !== null }]">
-        <template v-if="editCol">
-          <view class="sheet-grip" />
-          <view class="fs-head">
-            <text class="fs-title">{{ editCol.code }} · {{ editCol.name || '编辑栏目' }}</text>
-            <view class="fs-close" @click="colEditor = null">
-              <GIcon name="close" :size="30" />
+    <!-- ============ 三级：栏目编辑 ============ -->
+    <template v-else-if="panel === 'columnEdit' && editCol">
+      <view class="section">
+        <text class="section-label muted">{{ editCol.code }} · {{ editCol.path }}（保存整份回写，只动这一栏）</text>
+        <view class="card form">
+          <view class="field">
+            <text class="field-label">栏目名</text>
+            <input v-model="editCol.name" class="field-input" />
+          </view>
+          <view class="field">
+            <text class="field-label">简介（列表卡副行）</text>
+            <input v-model="editCol.brief" class="field-input" />
+          </view>
+          <view class="field">
+            <text class="field-label">描述（栏目页）</text>
+            <textarea
+              v-model="editCol.desc"
+              class="field-input field-area"
+              :maxlength="-1"
+              :auto-height="true"
+            />
+          </view>
+          <view v-if="editCol.subs.length" class="subs-edit">
+            <text class="field-label">小类别名（留空 = 用目录名）</text>
+            <view v-for="sub in editCol.subs" :key="sub.path" class="sub-row">
+              <text class="sub-path">{{ sub.path }}</text>
+              <input v-model="sub.name" class="field-input sub-input" :placeholder="dirName(sub.path)" />
             </view>
           </view>
-          <scroll-view class="col-sheet-body" scroll-y>
-            <view class="field">
-              <text class="field-label">栏目名</text>
-              <input v-model="editCol.name" class="field-input" />
-            </view>
-            <view class="field">
-              <text class="field-label">简介（列表卡副行）</text>
-              <input v-model="editCol.brief" class="field-input" />
-            </view>
-            <view class="field">
-              <text class="field-label">描述（栏目页）</text>
-              <textarea
-                v-model="editCol.desc"
-                class="field-input field-area"
-                :maxlength="-1"
-                :auto-height="true"
-              />
-            </view>
-            <view v-if="editCol.subs.length" class="subs-edit">
-              <text class="field-label">小类别名（留空 = 用目录名）</text>
-              <view v-for="sub in editCol.subs" :key="sub.path" class="sub-row">
-                <text class="sub-path">{{ sub.path }}</text>
-                <input v-model="sub.name" class="field-input sub-input" :placeholder="dirName(sub.path)" />
-              </view>
-            </view>
-            <button :class="['btn', 'save-btn', colsSaving ? 'btn-off' : '']" @click="submitColumn">
-              {{ colsSaving ? '保存中…' : '保存本栏目' }}
-            </button>
-            <text v-if="colsNotice" class="note muted">{{ colsNotice }}</text>
-            <view class="fs-tail" />
-          </scroll-view>
-        </template>
+        </view>
+        <button :class="['btn', 'save-btn', colsSaving ? 'btn-off' : '']" @click="submitColumn">
+          {{ colsSaving ? '保存中…' : '保存本栏目' }}
+        </button>
+        <text v-if="colsNotice" class="note muted">{{ colsNotice }}</text>
       </view>
     </template>
 
@@ -292,7 +284,7 @@
         <view class="card">
           <template v-for="(wf, i) in wfs" :key="wf.key">
             <view v-if="i > 0" class="divider" />
-            <view class="cell">
+            <view class="cell" @click="openWfEditor(i)">
               <view class="cell-main">
                 <view class="row">
                   <text class="cell-title">{{ wf.name }}</text>
@@ -303,6 +295,7 @@
               <switch
                 :checked="wf.enabled"
                 color="#0066cc"
+                @click.stop
                 @change="toggleWorkflow(wf, $event)"
               />
             </view>
@@ -382,6 +375,40 @@ AI 洗稿，与网页端、Obsidian 共用同一份数据。</text>
       </view>
     </template>
 
+    <!-- ============ 三级：工作流编辑（跳转式，与栏目编辑同一操作语言） ============ -->
+    <template v-else-if="panel === 'wfEdit' && editWf">
+      <view class="section">
+        <text class="section-label muted">{{ editWf.key }} · {{ editWf.scope }}（保存整份回写并热加载）</text>
+        <view class="card form">
+          <view class="field">
+            <text class="field-label">名称</text>
+            <input v-model="editWf.name" class="field-input" maxlength="40" />
+          </view>
+          <view class="field">
+            <text class="field-label">描述</text>
+            <input v-model="editWf.description" class="field-input" />
+          </view>
+          <view class="field">
+            <text class="field-label">启用</text>
+            <switch :checked="editWf.enabled" color="#0066cc" @change="editWf.enabled = Boolean(($event as any)?.detail?.value)" />
+          </view>
+          <view class="field">
+            <text class="field-label">提示词（内置动作留空 = 用默认）</text>
+            <textarea
+              v-model="editWf.prompt"
+              class="field-input field-area"
+              :maxlength="-1"
+              :auto-height="true"
+              placeholder="（空）"
+            />
+          </view>
+        </view>
+        <button :class="['btn', 'save-btn', wfSaving ? 'btn-off' : '']" @click="submitWf">
+          {{ wfSaving ? '保存中…' : '保存并热加载' }}
+        </button>
+      </view>
+    </template>
+
 
     <view class="tail" />
   </view>
@@ -411,7 +438,16 @@ import {
 } from '../../shared/api/admin'
 import { columnByCode, tint } from '../../shared/config/columns'
 
-type Panel = 'root' | 'general' | 'site' | 'columns' | 'ai' | 'account' | 'about'
+type Panel =
+  | 'root'
+  | 'general'
+  | 'site'
+  | 'columns'
+  | 'columnEdit'
+  | 'ai'
+  | 'wfEdit'
+  | 'account'
+  | 'about'
 
 const auth = useAuthStore()
 const appVersion = APP_VERSION
@@ -424,11 +460,21 @@ const PANEL_TITLES: Record<Panel, string> = {
   general: '偏好',
   site: '站点信息',
   columns: '栏目与小类',
+  columnEdit: '编辑栏目',
   ai: 'AI 设置',
+  wfEdit: '编辑工作流',
   account: '账号与设备',
   about: '关于',
 }
-const panelTitle = computed(() => PANEL_TITLES[panel.value])
+const panelTitle = computed(() => {
+  if (panel.value === 'columnEdit' && editCol.value) {
+    return `${editCol.value.code} · ${editCol.value.name || '编辑栏目'}`
+  }
+  if (panel.value === 'wfEdit' && editWf.value) {
+    return editWf.value.name || '编辑工作流'
+  }
+  return PANEL_TITLES[panel.value]
+})
 
 function openPanel(p: Panel): void {
   panel.value = p
@@ -437,6 +483,14 @@ function openPanel(p: Panel): void {
 }
 
 function back(): void {
+  if (panel.value === 'columnEdit') {
+    panel.value = 'columns'
+    return
+  }
+  if (panel.value === 'wfEdit') {
+    panel.value = 'ai'
+    return
+  }
   if (panel.value !== 'root') {
     panel.value = 'root'
     return
@@ -484,19 +538,21 @@ const siteNotice = ref('')
 const cols = ref<AdminColumn[]>([])
 const colsSaving = ref(false)
 const colsNotice = ref('')
-/** 底部编辑器：当前编辑的栏目下标；null = 关闭 */
-const colEditor = ref<number | null>(null)
+/** 三级编辑面板：当前编辑的栏目（深拷贝，取消不伤原数据） */
+const editIdx = ref<number>(-1)
 const editCol = ref<AdminColumn | null>(null)
 
 function openColEditor(index: number): void {
   editCol.value = JSON.parse(JSON.stringify(cols.value[index])) as AdminColumn
-  colEditor.value = index
+  editIdx.value = index
+  panel.value = 'columnEdit'
+  colsNotice.value = ''
 }
 
 /** 只保存正在编辑的这栏：整份回写契约下，替换 items 里对应项即可 */
 function submitColumn(): void {
-  if (colEditor.value === null || !editCol.value) return
-  const idx = colEditor.value
+  if (!editCol.value || editIdx.value < 0) return
+  const idx = editIdx.value
   const item = {
     ...editCol.value,
     name: editCol.value.name.trim(),
@@ -514,7 +570,7 @@ function submitColumn(): void {
       cols.value = items
       colsNotice.value = '已保存'
       uni.showToast({ title: '已保存', icon: 'none' })
-      colEditor.value = null
+      panel.value = 'columns' // 存完回栏目列表
     })
     .catch((err: any) => {
       colsNotice.value = err?.reason || '保存失败'
@@ -676,6 +732,34 @@ function toggleWorkflow(wf: AdminWorkflow, e: any): void {
     .catch((err: any) => {
       wf.enabled = !enabled // 回滚 UI
       uni.showToast({ title: err?.reason || '保存失败', icon: 'none' })
+    })
+}
+
+/** 工作流编辑：三级面板（跳转式），深拷贝编辑，保存整份回写 */
+const editWf = ref<AdminWorkflow | null>(null)
+const wfSaving = ref(false)
+
+function openWfEditor(index: number): void {
+  editWf.value = JSON.parse(JSON.stringify(wfs.value[index])) as AdminWorkflow
+  panel.value = 'wfEdit'
+}
+
+function submitWf(): void {
+  const edit = editWf.value
+  if (!edit) return
+  wfSaving.value = true
+  const items = wfs.value.map((w) => (w.key === edit.key ? { ...edit } : w))
+  saveWorkflows(items)
+    .then(() => {
+      wfs.value = items
+      uni.showToast({ title: '已保存并热加载', icon: 'none' })
+      panel.value = 'ai'
+    })
+    .catch((err: any) => {
+      uni.showToast({ title: err?.reason || '保存失败', icon: 'none' })
+    })
+    .finally(() => {
+      wfSaving.value = false
     })
 }
 
@@ -922,5 +1006,44 @@ onShow(() => {
 
 .tail {
   height: calc(env(safe-area-inset-bottom) + 40px);
+}
+
+/* ---------------- 表单细节修正 ---------------- */
+
+/* 保存 / 测试连接并排（用户指定） */
+.btn-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.btn-row .btn {
+  flex: 1 1 0;
+  margin: 0;
+}
+
+/* seg 在表单里太挤会换行压住下一个字段：缩字号、禁换行 */
+.form .seg {
+  padding: 4px 0;
+  gap: 6px;
+}
+
+.form .seg-item {
+  font-size: 13px;
+  padding: 9px 2px;
+  white-space: nowrap;
+}
+
+/* 工作流作用域小标 */
+.wf-scope {
+  font-size: 10px;
+  color: var(--accent);
+  background-color: var(--accent-soft);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.test-fail {
+  color: var(--danger) !important;
 }
 </style>
