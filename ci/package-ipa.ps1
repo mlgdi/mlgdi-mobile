@@ -11,7 +11,7 @@
 
 param(
     [switch]$SkipBuild,
-    [string]$CopyTo = ""
+    [string]$CopyTo = "\\192.168.1.145\我的文件"
 )
 
 $ErrorActionPreference = "Stop"

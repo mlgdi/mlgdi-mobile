@@ -2,7 +2,7 @@
   <view :class="['page', `theme-${resolvedTheme}`]">
     <!-- 顶栏：品牌左对齐；右侧依次 搜索 / 碎片箱 / 设置 -->
     <view class="top-fixed">
-            <GTopBar :elevated="scrolled">
+            <GTopBar :elevated="scrolled" menu @menu="sideOpen = true">
         <template #actions>
           <view class="icon-btn" @click="toggleSearch">
             <GIcon :name="searching ? 'close' : 'search'" :size="40" />
@@ -80,33 +80,6 @@
         </view>
         <text v-if="colDesc" class="col-desc">{{ colDesc }}</text>
       </view>
-
-      <!-- 子类：栏目根下的一级子目录；只有 1 个及以下时不显示，避免独占一行 -->
-      <scroll-view
-        v-if="!searching && !isHome && subFolders.length > 1"
-        class="subs"
-        scroll-x
-        :show-scrollbar="false"
-      >
-        <view class="subs-inner">
-          <view
-            :class="['sub-chip', activeSub === '' ? 'sub-on' : '']"
-            :style="chipStyle"
-            @click="pickSub('')"
-          >
-            <text class="sub-text">全部</text>
-          </view>
-          <view
-            v-for="sub in subFolders"
-            :key="sub.path"
-            :class="['sub-chip', activeSub === sub.path ? 'sub-on' : '']"
-            :style="chipStyle"
-            @click="pickSub(sub.path)"
-          >
-            <text class="sub-text">{{ sub.name }}</text>
-          </view>
-        </view>
-      </scroll-view>
 
       <!-- 列表 -->
       <view v-if="notes.loading && !notes.docs.length" class="state">
@@ -192,6 +165,16 @@
     </view>
 
     <GTabBar :active="activeTab" :disabled="!loggedIn" @select="switchColumn" />
+
+    <!-- 侧栏：Web 左栏移植，完整目录树 -->
+    <GSideNav
+      :open="sideOpen"
+      :active="activeTab"
+      :active-sub="activeSub"
+      @close="sideOpen = false"
+      @select="onSideSelect"
+      @nav="onSideNav"
+    />
   </view>
 </template>
 
@@ -209,6 +192,7 @@ import { capture, items as apiInboxItems } from '../../shared/api/inbox'
 import { COLUMNS, columnByCode, columnByPath, tint } from '../../shared/config/columns'
 import GIcon from '../../shared/components/GIcon.vue'
 import GTopBar from '../../shared/components/GTopBar.vue'
+import GSideNav from '../../shared/components/GSideNav.vue'
 import GDocItem from '../../shared/components/GDocItem.vue'
 import GTabBar, { type TabCode } from '../../shared/components/GTabBar.vue'
 
@@ -223,6 +207,8 @@ const pendingCount = ref(0)
 const activeTab = ref<TabCode>('HOME')
 /** 子类（子目录）过滤；空串 = 全部 */
 const activeSub = ref('')
+/** 侧栏抽屉（Web 左栏移植）：完整目录树从这里进 */
+const sideOpen = ref(false)
 
 const loggedIn = computed(() => hasSession())
 
@@ -249,28 +235,6 @@ function byUpdatedDesc(a: FlatDoc, b: FlatDoc): number {
  * 用户会在「栏目 > 子类 > 子类的子类」里迷路，而实际层级只有 2 层。
  * 更深的层级仍在列表元信息里以 `A / B` 的形式露出。
  */
-const subFolders = computed<Array<{ path: string; name: string; count: number }>>(() => {
-  const col = activeCol.value
-  if (!col) return []
-  const root = notes.roots.find((r) => r.path === col.path)
-  if (!root) return []
-  const countDocs = (node: { docs: unknown[]; folders: any[] }): number =>
-    node.docs.length + node.folders.reduce((sum: number, f: any) => sum + countDocs(f), 0)
-
-  // 显示名与网页左栏同源：site.yaml 的 subs[].name 非空就用它，否则回退目录名
-  const siteCol = siteStore.info.columns?.find((c) => c.code === col.code)
-  const displayName = (path: string, fallback: string): string => {
-    const hit = siteCol?.subs?.find((x) => x.path === path)
-    return (hit?.name || '').trim() || fallback
-  }
-
-  return root.folders.map((f) => ({
-    path: f.path,
-    name: displayName(f.path, f.name),
-    count: countDocs(f),
-  }))
-})
-
 const columnDocs = computed<FlatDoc[]>(() => {
   // 搜索与首页都是跨栏目；首页按更新时间倒序，等于「最近更新」
   if (isHome.value || (searching.value && keyword.value.trim())) {
@@ -367,12 +331,6 @@ const homeSub = computed(() =>
 )
 
 /** 子类 chip 的配色跟随当前栏目 */
-const chipStyle = computed(() => ({
-  '--c-soft': tint(heroMain.value, 0.12),
-  '--c-line': tint(heroMain.value, 0.3),
-  '--c-ink': heroInk.value,
-}))
-
 function switchColumn(code: TabCode): void {
   activeTab.value = code
   activeSub.value = ''
@@ -391,6 +349,26 @@ function toggleSearch(): void {
 function pickSub(path: string): void {
   activeSub.value = path
   paged.reset()
+}
+
+/** 侧栏选中：任意深度的目录都能直达（columnDocs 的前缀匹配对深层路径同样成立） */
+function onSideSelect(payload: { code: TabCode; sub: string }): void {
+  activeTab.value = payload.code
+  activeSub.value = payload.sub
+  keyword.value = ''
+  searching.value = false
+  sideOpen.value = false
+  paged.reset()
+  try {
+    uni.setStorageSync('garden.column', payload.code)
+  } catch {
+    /* 存不进就本次会话有效 */
+  }
+}
+
+function onSideNav(target: 'inbox' | 'settings'): void {
+  sideOpen.value = false
+  uni.navigateTo({ url: `/pages/${target}/index` })
 }
 
 function open(item: FlatDoc): void {
@@ -674,57 +652,6 @@ onPullDownRefresh(async () => {
   font-size: 26rpx;
   line-height: 1.7;
   color: var(--text-2);
-}
-
-/* ---------------- 子类 chip 条 ---------------- */
-.subs {
-  box-sizing: border-box;
-  width: 100%;
-  white-space: nowrap;
-  padding: 4rpx 0 20rpx;
-}
-
-.subs-inner {
-  display: inline-flex;
-  align-items: center;
-  gap: 12rpx;
-}
-
-.sub-chip {
-  flex: 0 0 auto;
-  height: 64rpx;
-  padding: 0 26rpx;
-  border-radius: 9999rpx;
-  border: 1rpx solid transparent;
-  background-color: var(--surface-2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition:
-    background-color 180ms ease,
-    border-color 180ms ease,
-    color 180ms ease;
-}
-
-.sub-chip:active {
-  opacity: 0.75;
-}
-
-.sub-text {
-  font-size: 26rpx;
-  font-weight: 500;
-  color: var(--text-2);
-  white-space: nowrap;
-}
-
-.sub-on {
-  background-color: var(--c-soft);
-  border-color: var(--c-line);
-}
-
-.sub-on .sub-text {
-  color: var(--c-ink);
-  font-weight: 600;
 }
 
 /* ---------------- 分页脚 ---------------- */

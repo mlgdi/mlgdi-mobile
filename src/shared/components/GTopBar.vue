@@ -17,15 +17,20 @@ withDefaults(
     back?: boolean
     /** 内容已滚动：显示磨砂底与下边框 */
     elevated?: boolean
+    /** 顶级页显示侧栏入口（标题左侧的三横线） */
+    menu?: boolean
   }>(),
-  { title: '渡己・Mlgdi', sub: '', back: false, elevated: false },
+  { title: '渡己・Mlgdi', sub: '', back: false, elevated: false, menu: false },
 )
 
-const emit = defineEmits<{ (e: 'back'): void }>()
+const emit = defineEmits<{ (e: 'back'): void; (e: 'menu'): void }>()
 </script>
 
 <template>
   <view :class="['gtop', { 'is-elevated': elevated, 'is-sub': back }]">
+    <view v-if="menu" class="lead" @click="emit('menu')">
+      <GIcon name="menu" :size="44" :weight="2" />
+    </view>
     <view v-if="back" class="lead" @click="emit('back')">
       <GIcon name="chevron-left" :size="48" :weight="2.3" />
     </view>

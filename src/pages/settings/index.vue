@@ -45,6 +45,16 @@
     </view>
 
     <view class="section">
+      <text class="section-label muted">关于</text>
+      <view class="card">
+        <view class="cell">
+          <text class="cell-title">版本</text>
+          <text class="cell-sub muted">v{{ appVersion }}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="section">
       <text class="section-label muted">账号</text>
       <view class="card">
         <view class="cell">
@@ -99,8 +109,11 @@ import { useAuthStore } from '../../shared/store/auth'
 import { getBaseUrl } from '../../shared/config/server'
 import { listDevices, revokeDevice, type DeviceRow } from '../../shared/api/auth'
 import { resolvedTheme, themeMode, setThemeMode, type ThemeMode } from '../../shared/theme'
+import { APP_VERSION } from '../../shared/version'
 
 const auth = useAuthStore()
+/** App 版本：manifest.json 的 versionName（CI 从 package.json 同步写入） */
+const appVersion = APP_VERSION
 const baseUrl = ref(getBaseUrl())
 const devices = ref<DeviceRow[]>([])
 

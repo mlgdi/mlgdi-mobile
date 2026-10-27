@@ -30,6 +30,8 @@ const props = withDefaults(defineProps<Props>(), {
 
 /** 每个图标 = 一组 path 的 d 字符串 */
 const ICONS: Record<string, string[]> = {
+  menu: ['M4 7h16', 'M4 12h16', 'M4 17h16'],
+  folder: ['M4 6a1 1 0 0 1 1-1h4.6l2 2H19a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6z'],
   inbox: [
     'M5 5h14l2 8v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-5z',
     'M3 13h5l1.5 2.5h5L16 13h5',
