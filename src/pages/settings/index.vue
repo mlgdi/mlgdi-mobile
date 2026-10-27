@@ -180,7 +180,7 @@
               </view>
               <view class="cell-main">
                 <text class="cell-title">{{ col.name }}</text>
-                <text class="cell-sub muted">{{ col.brief || dirName(col.path) }} · {{ col.subs.length }} 个小类</text>
+                <text class="cell-sub muted">{{ col.brief || dirName(col.path) }}</text>
               </view>
               <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
             </view>
