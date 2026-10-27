@@ -346,6 +346,9 @@ try {
   // ---- 8. 深色主题 ----
   await page.goto(`${APP}/#/pages/settings/index`, { waitUntil: 'networkidle' })
   await page.waitForTimeout(1200)
+  // 二级菜单：偏好 → 主题 seg → 深色
+  await page.getByText('偏好', { exact: true }).first().click()
+  await page.waitForTimeout(500)
   await page.getByText('深色', { exact: true }).first().click()
   await page.waitForTimeout(600)
   await shot(page, '08-settings-dark')
