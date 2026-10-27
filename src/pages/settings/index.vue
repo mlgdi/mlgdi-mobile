@@ -126,36 +126,36 @@
     <template v-else-if="panel === 'site'">
       <view class="section">
         <text class="section-label muted">品牌字段（写入 site.yaml，保存后立即生效）</text>
-        <view class="card form">
-          <view class="field">
-            <text class="field-label">站点名称</text>
-            <input v-model="site.name" class="field-input" placeholder="渡己" />
+        <view class="card padded">
+          <view class="fld">
+            <text class="fld-label">站点名称</text>
+            <input v-model="site.name" class="fld-input" placeholder="渡己" />
           </view>
-          <view class="field">
-            <text class="field-label">标语</text>
-            <input v-model="site.tagline" class="field-input" placeholder="一念入笺…" />
+          <view class="fld">
+            <text class="fld-label">标语</text>
+            <input v-model="site.tagline" class="fld-input" placeholder="一念入笺…" />
           </view>
-          <view class="field">
-            <text class="field-label">描述</text>
+          <view class="fld">
+            <text class="fld-label">描述</text>
             <textarea
               v-model="site.description"
-              class="field-input field-area"
+              class="fld-input fld-area"
               :maxlength="-1"
               :auto-height="true"
               placeholder="站点一句话介绍"
             />
           </view>
-          <view class="field">
-            <text class="field-label">作者</text>
-            <input v-model="site.author" class="field-input" />
+          <view class="fld">
+            <text class="fld-label">作者</text>
+            <input v-model="site.author" class="fld-input" />
           </view>
-          <view class="field">
-            <text class="field-label">备案号</text>
-            <input v-model="site.icp" class="field-input" placeholder="留空则不显示" />
+          <view class="fld">
+            <text class="fld-label">备案号</text>
+            <input v-model="site.icp" class="fld-input" placeholder="留空则不显示" />
           </view>
-          <view class="field">
-            <text class="field-label">每页条数</text>
-            <input v-model="site.pageSize" class="field-input" type="number" placeholder="15" />
+          <view class="fld">
+            <text class="fld-label">每页条数</text>
+            <input v-model="site.pageSize" class="fld-input" type="number" placeholder="15" />
           </view>
         </view>
         <button :class="['btn', 'save-btn', siteSaving ? 'btn-off' : '']" @click="submitSite">
@@ -194,29 +194,29 @@
     <template v-else-if="panel === 'columnEdit' && editCol">
       <view class="section">
         <text class="section-label muted">{{ editCol.code }} · {{ editCol.path }}（保存整份回写，只动这一栏）</text>
-        <view class="card form">
-          <view class="field">
-            <text class="field-label">栏目名</text>
-            <input v-model="editCol.name" class="field-input" />
+        <view class="card padded">
+          <view class="fld">
+            <text class="fld-label">栏目名</text>
+            <input v-model="editCol.name" class="fld-input" />
           </view>
-          <view class="field">
-            <text class="field-label">简介（列表卡副行）</text>
-            <input v-model="editCol.brief" class="field-input" />
+          <view class="fld">
+            <text class="fld-label">简介（列表卡副行）</text>
+            <input v-model="editCol.brief" class="fld-input" />
           </view>
-          <view class="field">
-            <text class="field-label">描述（栏目页）</text>
+          <view class="fld">
+            <text class="fld-label">描述（栏目页）</text>
             <textarea
               v-model="editCol.desc"
-              class="field-input field-area"
+              class="fld-input fld-area"
               :maxlength="-1"
               :auto-height="true"
             />
           </view>
           <view v-if="editCol.subs.length" class="subs-edit">
-            <text class="field-label">小类别名（留空 = 用目录名）</text>
+            <text class="fld-label">小类别名（留空 = 用目录名）</text>
             <view v-for="sub in editCol.subs" :key="sub.path" class="sub-row">
               <text class="sub-path">{{ sub.path }}</text>
-              <input v-model="sub.name" class="field-input sub-input" :placeholder="dirName(sub.path)" />
+              <input v-model="sub.name" class="fld-input sub-input" :placeholder="dirName(sub.path)" />
             </view>
           </view>
         </view>
@@ -233,9 +233,9 @@
     <template v-else-if="panel === 'ai'">
       <view class="section">
         <text class="section-label muted">引擎与密钥（写入 garden.local.yaml，保存即生效）</text>
-        <view class="card form">
-          <view class="field">
-            <text class="field-label">引擎</text>
+        <view class="card padded">
+          <view class="fld">
+            <text class="fld-label">引擎</text>
             <view class="seg">
               <view
                 :class="['seg-item', ai.engine === 'stub' ? 'seg-on' : '']"
@@ -251,21 +251,21 @@
               </view>
             </view>
           </view>
-          <view class="field">
-            <text class="field-label">接口地址（OpenAI 兼容，留 /v1）</text>
-            <input v-model="ai.llm_api_base" class="field-input" placeholder="https://api.deepseek.com/v1" />
+          <view class="fld">
+            <text class="fld-label">接口地址（OpenAI 兼容，留 /v1）</text>
+            <input v-model="ai.llm_api_base" class="fld-input" placeholder="https://api.deepseek.com/v1" />
           </view>
-          <view class="field">
-            <text class="field-label">API Key{{ aiKeyHint ? `（已设置 ${aiKeyHint}，留空保持）` : '' }}</text>
-            <input v-model="aiKeyInput" class="field-input" password placeholder="留空 = 保持原值" />
+          <view class="fld">
+            <text class="fld-label">API Key{{ aiKeyHint ? `（已设置 ${aiKeyHint}，留空保持）` : '' }}</text>
+            <input v-model="aiKeyInput" class="fld-input" password placeholder="留空 = 保持原值" />
           </view>
-          <view class="field">
-            <text class="field-label">对话模型</text>
-            <input v-model="ai.llm_model" class="field-input" placeholder="例 deepseek-chat" />
+          <view class="fld">
+            <text class="fld-label">对话模型</text>
+            <input v-model="ai.llm_model" class="fld-input" placeholder="例 deepseek-chat" />
           </view>
-          <view class="field">
-            <text class="field-label">封面模型（留空 = 不启用）</text>
-            <input v-model="ai.llm_image_model" class="field-input" />
+          <view class="fld">
+            <text class="fld-label">封面模型（留空 = 不启用）</text>
+            <input v-model="ai.llm_image_model" class="fld-input" />
           </view>
         </view>
         <view class="btn-row">
@@ -379,24 +379,24 @@ AI 洗稿，与网页端、Obsidian 共用同一份数据。</text>
     <template v-else-if="panel === 'wfEdit' && editWf">
       <view class="section">
         <text class="section-label muted">{{ editWf.key }} · {{ editWf.scope }}（保存整份回写并热加载）</text>
-        <view class="card form">
-          <view class="field">
-            <text class="field-label">名称</text>
-            <input v-model="editWf.name" class="field-input" maxlength="40" />
+        <view class="card padded">
+          <view class="fld">
+            <text class="fld-label">名称</text>
+            <input v-model="editWf.name" class="fld-input" maxlength="40" />
           </view>
-          <view class="field">
-            <text class="field-label">描述</text>
-            <input v-model="editWf.description" class="field-input" />
+          <view class="fld">
+            <text class="fld-label">描述</text>
+            <input v-model="editWf.description" class="fld-input" />
           </view>
-          <view class="field">
-            <text class="field-label">启用</text>
+          <view class="fld">
+            <text class="fld-label">启用</text>
             <switch :checked="editWf.enabled" color="#0066cc" @change="editWf.enabled = Boolean(($event as any)?.detail?.value)" />
           </view>
-          <view class="field">
-            <text class="field-label">提示词（内置动作留空 = 用默认）</text>
+          <view class="fld">
+            <text class="fld-label">提示词（内置动作留空 = 用默认）</text>
             <textarea
               v-model="editWf.prompt"
-              class="field-input field-area"
+              class="fld-input fld-area"
               :maxlength="-1"
               :auto-height="true"
               placeholder="（空）"
@@ -933,71 +933,84 @@ onShow(() => {
   padding: 8px 4px 0;
 }
 
-/* ---------------- 二级面板表单 ---------------- */
-.form {
-  padding: 6px 16px 10px;
+/* ---------------- 二级面板：移动端表单 ----------------
+   为什么不用 .field：App.vue 里的 .field 是「输入框本体」（88rpx 高、灰底、圆角），
+   直接拿来当包裹层会把整块压成一条灰带，标签与值互相压——这是 0.6.1 截图里的病根。
+   这里全部用 fld* 独立命名：无底色、按行分隔、输入区给足触摸高度。 */
+.padded {
+  padding: 4px 16px;
 }
 
-.field {
-  padding: 10px 0;
+.fld {
+  padding: 14px 0 16px;
   border-bottom: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.field:last-child {
-  border-bottom: none;
-}
-
-.field-label {
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.field-input {
-  font-size: 15px;
-  color: var(--text);
-  background: transparent;
-}
-
-.field-area {
-  /* uni 的 auto-height 在滚动容器里会慢一拍，先给足最小高度避免压到下一行 */
-  min-height: 84px;
-  line-height: 1.6;
-}
-
-.subs-edit {
-  margin-top: 6px;
-  padding: 10px 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
+.fld:last-child {
+  border-bottom: none;
+}
+
+.fld-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fld-label {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+/* 输入本体：透明底 + 44px 触摸高度，视觉靠「标签 + 下划线」分层 */
+.fld-input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  box-sizing: border-box;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+  background-color: transparent;
+  border-radius: 0;
+}
+
+.fld-area {
+  min-height: 96px;
+  padding: 2px 0 0;
+  line-height: 1.7;
+}
+
+.subs-edit {
+  padding: 14px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-top: 1px dashed var(--line);
+}
+
+/* 小类别名：路径一行、输入一行，手机上不横向硬挤 */
 .sub-row {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 0 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sub-row:last-child {
+  border-bottom: none;
 }
 
 .sub-path {
-  flex: 0 0 auto;
-  max-width: 44%;
   font-size: 12px;
   color: var(--faint);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.sub-input {
-  flex: 1;
-  font-size: 14px;
-  color: var(--text);
-  background: transparent;
-  border-bottom: 1px solid var(--line);
-  padding: 4px 0;
 }
 
 .save-btn {
@@ -1022,16 +1035,21 @@ onShow(() => {
   margin: 0;
 }
 
-/* seg 在表单里太挤会换行压住下一个字段：缩字号、禁换行 */
-.form .seg {
-  padding: 4px 0;
-  gap: 6px;
+/* 引擎切换：两个等宽段，横向排一行（不再换行压住下一字段） */
+.padded .seg {
+  padding: 0;
+  gap: 8px;
 }
 
-.form .seg-item {
-  font-size: 13px;
-  padding: 9px 2px;
+.padded .seg-item {
+  font-size: 14px;
+  padding: 12px 4px;
   white-space: nowrap;
+  background-color: var(--surface-2);
+}
+
+.padded .seg-on {
+  background-color: var(--accent-soft);
 }
 
 /* 工作流作用域小标 */
