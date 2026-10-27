@@ -50,6 +50,56 @@ export function saveColumns(items: AdminColumn[]): Promise<{ ok: boolean; messag
   return request({ method: 'PUT', path: '/api/v1/admin/columns', body: { items } })
 }
 
+/* ---------------- 小类（目录）增删改查 ---------------- */
+
+/** 磁盘上的一个子目录。`alias` 是 site.yaml 里的显示名（空 = 用目录名） */
+export interface AdminSubDir {
+  /** 目录名（物理） */
+  name: string
+  /** 栏目内全路径，如 03_Articles/深度思考/推理链 */
+  path: string
+  alias: string
+  /** 空目录（可以安全删除） */
+  empty: boolean
+  /** 直接下级目录数 */
+  child_count: number
+  has_children: boolean
+}
+
+/** 列某个目录的直接子目录。parent 可以是栏目根，也可以是任意层级的小类 */
+export function listSubs(parent: string): Promise<{ items: AdminSubDir[]; column: string }> {
+  return request({ path: '/api/v1/admin/subs', query: { parent } })
+}
+
+/** 新建小类目录（parent 任意层级，mkdir 不写文件） */
+export function createSub(parent: string, name: string): Promise<{ ok: boolean; path: string }> {
+  return request({ method: 'POST', path: '/api/v1/admin/subs', body: { parent, name } })
+}
+
+/** 删除小类目录（只允许空目录；非空一律拒绝） */
+export function deleteSub(path: string): Promise<{ ok: boolean }> {
+  return request({ method: 'DELETE', path: '/api/v1/admin/subs', query: { path } })
+}
+
+/** 改显示名（只写 site.yaml 呈现层，不动磁盘） */
+export function setSubAlias(
+  path: string,
+  name: string,
+): Promise<{ ok: boolean; name: string; message?: string }> {
+  return request({ method: 'PATCH', path: '/api/v1/admin/subs', body: { path, name } })
+}
+
+/**
+ * 重命名**目录本身**（物理改名）。会打断正文里指向旧路径的双链——
+ * 后端只搬目录 + 同步 site.yaml，绝不改正文，所以前端必须先让用户确认。
+ */
+export function renameSubDir(
+  path: string,
+  name: string,
+): Promise<{ ok: boolean; path: string; message?: string }> {
+  return request({ method: 'POST', path: '/api/v1/admin/subs/rename', body: { path, name } })
+}
+
 /* ---------------- AI 引擎与工作流（admin） ---------------- */
 
 export interface AdminAi {

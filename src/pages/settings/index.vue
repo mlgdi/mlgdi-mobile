@@ -190,40 +190,118 @@
       </view>
     </template>
 
-    <!-- ============ 三级：栏目编辑 ============ -->
+    <!-- ============ 三级：小类管理 ============
+         这里**只管小类**：栏目本身的名称/简介/描述归「站点信息」，不在这里改。
+         小类是目录，支持多层级——点行进下一级，逐层下钻。 -->
     <template v-else-if="panel === 'columnEdit' && editCol">
       <view class="section">
-        <text class="section-label muted">{{ editCol.code }} · {{ editCol.path }}（保存整份回写，只动这一栏）</text>
+        <text class="section-label muted"
+          >{{ editCol.code }} · {{ editCol.name }}（目录 {{ editCol.path }}）</text
+        >
+        <view class="card">
+          <view v-if="subLoading[editCol.path]" class="cell">
+            <text class="muted">加载中…</text>
+          </view>
+          <template v-else-if="subRows.length">
+            <template v-for="(row, i) in subRows" :key="row.path">
+              <view v-if="i > 0" class="divider" />
+              <view
+                class="cell sub-cell"
+                :style="{ paddingLeft: `${12 + row.depth * 24}px` }"
+                @click="openSub(row)"
+              >
+                <!-- 展开箭头只对「有下级」的行出现，点它只切展开、不进详情 -->
+                <view
+                  :class="['fold-hit', row.has_children ? '' : 'is-leaf']"
+                  @click.stop="row.has_children && toggleSub(row.path)"
+                >
+                  <GIcon
+                    v-if="row.has_children"
+                    name="chevron-right"
+                    :size="26"
+                    :weight="2.2"
+                    :class="['fold', expanded.has(row.path) ? 'is-open' : '']"
+                  />
+                </view>
+                <GIcon name="folder" :size="30" :weight="2" class="sub-ico" />
+                <view class="cell-main">
+                  <text class="cell-title">{{ row.alias || row.name }}</text>
+                  <text class="cell-sub muted">{{ subHint(row) }}</text>
+                </view>
+                <view class="chev"><GIcon name="chevron-right" :size="28" /></view>
+              </view>
+            </template>
+          </template>
+          <view v-else class="empty-hint">
+            <text class="muted">还没有小类，下面新建一个</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="section">
+        <button class="btn" @click="createChild(editCol.path)">新建小类</button>
+        <text class="note muted"
+          >小类就是目录：可以一层层往下建。目录名只允许中文/字母/数字，改名与删除在下一级页面里。</text
+        >
+      </view>
+    </template>
+
+    <!-- ============ 四级：单个小类 ============ -->
+    <template v-else-if="panel === 'subEdit' && curSub">
+      <view class="section">
+        <text class="section-label muted">{{ curSub.path }}</text>
         <view class="card padded">
           <view class="fld">
-            <text class="fld-label">栏目名</text>
-            <input v-model="editCol.name" class="fld-input" />
+            <text class="fld-label">显示名（留空 = 用目录名）</text>
+            <input v-model="subAlias" class="fld-input" :placeholder="curSub.name" />
           </view>
           <view class="fld">
-            <text class="fld-label">简介（列表卡副行）</text>
-            <input v-model="editCol.brief" class="fld-input" />
-          </view>
-          <view class="fld">
-            <text class="fld-label">描述（栏目页）</text>
-            <textarea
-              v-model="editCol.desc"
-              class="fld-input fld-area"
-              :maxlength="-1"
-              :auto-height="true"
-            />
-          </view>
-          <view v-if="editCol.subs.length" class="subs-edit">
-            <text class="fld-label">小类别名（留空 = 用目录名）</text>
-            <view v-for="sub in editCol.subs" :key="sub.path" class="sub-row">
-              <text class="sub-path">{{ sub.path }}</text>
-              <input v-model="sub.name" class="fld-input sub-input" :placeholder="dirName(sub.path)" />
+            <text class="fld-label">目录名（物理路径）</text>
+            <view class="row-inline">
+              <text class="mono">{{ curSub.name }}</text>
+              <text class="mini-btn" @click="renameCurSub">重命名</text>
             </view>
           </view>
         </view>
-        <button :class="['btn', 'save-btn', colsSaving ? 'btn-off' : '']" @click="submitColumn">
-          {{ colsSaving ? '保存中…' : '保存本栏目' }}
+        <button :class="['btn', 'save-btn', subBusy ? 'btn-off' : '']" @click="saveSubAlias">
+          {{ subBusy ? '保存中…' : '保存显示名' }}
         </button>
-        <text v-if="colsNotice" class="note muted">{{ colsNotice }}</text>
+        <text class="note muted">显示名只影响侧栏与列表的呈现，目录本身不动，双链安全。</text>
+      </view>
+
+      <view class="section">
+        <text class="section-label muted"
+          >下级小类（{{ (subLists[curSub.path] || []).length }} 个）</text
+        >
+        <view class="card">
+          <view v-if="subLoading[curSub.path]" class="cell">
+            <text class="muted">加载中…</text>
+          </view>
+          <template v-else-if="(subLists[curSub.path] || []).length">
+            <template v-for="(s, i) in subLists[curSub.path]" :key="s.path">
+              <view v-if="i > 0" class="divider" />
+              <view class="cell" @click="openSub(s)">
+                <GIcon name="folder" :size="30" :weight="2" class="sub-ico" />
+                <view class="cell-main">
+                  <text class="cell-title">{{ s.alias || s.name }}</text>
+                  <text class="cell-sub muted">{{ subHint(s) }}</text>
+                </view>
+                <view class="chev"><GIcon name="chevron-right" :size="28" /></view>
+              </view>
+            </template>
+          </template>
+          <view v-else class="cell">
+            <text class="muted">没有下级小类</text>
+          </view>
+        </view>
+        <view class="btn-row">
+          <button class="btn btn-ghost" @click="createChild(curSub.path)">新建下级小类</button>
+        </view>
+      </view>
+
+      <view class="section">
+        <button class="btn btn-danger" @click="removeCurSub">删除这个小类</button>
+        <text class="note muted">只有空目录能删；目录里还有文章时会被拒绝，避免误删正文。</text>
       </view>
     </template>
 
@@ -428,12 +506,17 @@ import {
   adminAi,
   adminColumns,
   adminWorkflows,
+  createSub,
+  deleteSub,
+  listSubs,
+  renameSubDir,
   saveAdminAi,
-  saveColumns,
   saveSite,
   saveWorkflows,
+  setSubAlias,
   testAdminAi,
   type AdminColumn,
+  type AdminSubDir,
   type AdminWorkflow,
 } from '../../shared/api/admin'
 import { columnByCode, tint } from '../../shared/config/columns'
@@ -444,6 +527,7 @@ type Panel =
   | 'site'
   | 'columns'
   | 'columnEdit'
+  | 'subEdit'
   | 'ai'
   | 'wfEdit'
   | 'account'
@@ -460,7 +544,8 @@ const PANEL_TITLES: Record<Panel, string> = {
   general: '偏好',
   site: '站点信息',
   columns: '栏目与小类',
-  columnEdit: '编辑栏目',
+  columnEdit: '小类管理',
+  subEdit: '小类',
   ai: 'AI 设置',
   wfEdit: '编辑工作流',
   account: '账号与设备',
@@ -468,7 +553,10 @@ const PANEL_TITLES: Record<Panel, string> = {
 }
 const panelTitle = computed(() => {
   if (panel.value === 'columnEdit' && editCol.value) {
-    return `${editCol.value.code} · ${editCol.value.name || '编辑栏目'}`
+    return `${editCol.value.code} · ${editCol.value.name || '小类管理'}`
+  }
+  if (panel.value === 'subEdit' && curSub.value) {
+    return curSub.value.alias || curSub.value.name
   }
   if (panel.value === 'wfEdit' && editWf.value) {
     return editWf.value.name || '编辑工作流'
@@ -483,6 +571,10 @@ function openPanel(p: Panel): void {
 }
 
 function back(): void {
+  if (panel.value === 'subEdit') {
+    leaveSub()
+    return
+  }
   if (panel.value === 'columnEdit') {
     panel.value = 'columns'
     return
@@ -534,51 +626,251 @@ const site = ref({
 const siteSaving = ref(false)
 const siteNotice = ref('')
 
-/* ---------------- 栏目与小类（admin） ---------------- */
+/* ---------------- 栏目与小类（admin） ----------------
+   栏目本身的名称/简介/描述不在这里改（用户明确移除）——那属于站点信息。
+   这个面板只管**小类**，也就是磁盘目录，支持任意层级：
+   栏目根 → 小类 → 小类的小类 …… 逐层下钻。 */
 const cols = ref<AdminColumn[]>([])
-const colsSaving = ref(false)
-const colsNotice = ref('')
-/** 三级编辑面板：当前编辑的栏目（深拷贝，取消不伤原数据） */
-const editIdx = ref<number>(-1)
+/** 当前进入的栏目（只读：名称/路径用来做标题与根路径） */
 const editCol = ref<AdminColumn | null>(null)
 
-function openColEditor(index: number): void {
-  editCol.value = JSON.parse(JSON.stringify(cols.value[index])) as AdminColumn
-  editIdx.value = index
-  panel.value = 'columnEdit'
-  colsNotice.value = ''
+/** 每个目录的子列表缓存，key = 目录全路径 */
+const subLists = ref<Record<string, AdminSubDir[]>>({})
+const subLoading = ref<Record<string, boolean>>({})
+/** 展开状态（只作用于栏目根的那棵树） */
+const expanded = ref<Set<string>>(new Set())
+/** 下钻栈：栈顶就是当前看的小类 */
+const subStack = ref<string[]>([])
+const curSub = ref<AdminSubDir | null>(null)
+const subAlias = ref('')
+const subBusy = ref(false)
+
+/**
+ * 行副说明：**别名与目录名相同时不要重复显示**（同名别名是历史配置，很常见）。
+ * 有下级就报数量，其次报空目录/有内容。
+ */
+function subHint(s: AdminSubDir): string {
+  if (s.alias && s.alias !== s.name) return s.name
+  if (s.child_count > 0) return `${s.child_count} 个下级`
+  return s.empty ? '空目录' : '有内容'
 }
 
-/** 只保存正在编辑的这栏：整份回写契约下，替换 items 里对应项即可 */
-function submitColumn(): void {
-  if (!editCol.value || editIdx.value < 0) return
-  const idx = editIdx.value
-  const item = {
-    ...editCol.value,
-    name: editCol.value.name.trim(),
-    brief: editCol.value.brief.trim(),
-    desc: editCol.value.desc.trim(),
-    subs: editCol.value.subs.map((sub) => ({
-      ...sub,
-      name: (sub.name || '').trim() || dirName(sub.path),
-    })),
+/** 栏目根的树拍平成行（缩进靠 depth）——比递归组件简单，展开状态决定下钻到第几层 */
+const subRows = computed(() => {
+  const out: Array<AdminSubDir & { depth: number }> = []
+  const walk = (parent: string, depth: number): void => {
+    for (const s of subLists.value[parent] || []) {
+      out.push({ ...s, depth })
+      if (expanded.value.has(s.path)) walk(s.path, depth + 1)
+    }
   }
-  colsSaving.value = true
-  const items = cols.value.map((c, i) => (i === idx ? item : c))
-  saveColumns(items)
-    .then(() => {
-      cols.value = items
-      colsNotice.value = '已保存'
-      uni.showToast({ title: '已保存', icon: 'none' })
-      panel.value = 'columns' // 存完回栏目列表
+  walk(editCol.value?.path || '', 0)
+  return out
+})
+
+async function loadSubs(dir: string, force = false): Promise<void> {
+  if (!dir) return
+  if (!force && subLists.value[dir]) return
+  subLoading.value = { ...subLoading.value, [dir]: true }
+  try {
+    const res = await listSubs(dir)
+    subLists.value = { ...subLists.value, [dir]: res.items || [] }
+  } catch (err: any) {
+    uni.showToast({ title: err?.reason || '小类加载失败', icon: 'none' })
+  } finally {
+    subLoading.value = { ...subLoading.value, [dir]: false }
+  }
+}
+
+function findSub(path: string): AdminSubDir | null {
+  const parent = path.split('/').slice(0, -1).join('/')
+  return (subLists.value[parent] || []).find((s) => s.path === path) || null
+}
+
+/** 进栏目：重置下钻状态，只拉第一层 */
+function openColEditor(index: number): void {
+  editCol.value = cols.value[index] || null
+  subStack.value = []
+  curSub.value = null
+  expanded.value = new Set()
+  subLists.value = {}
+  panel.value = 'columnEdit'
+  void loadSubs(editCol.value?.path || '')
+}
+
+function toggleSub(path: string): void {
+  const next = new Set(expanded.value)
+  if (next.has(path)) next.delete(path)
+  else {
+    next.add(path)
+    void loadSubs(path)
+  }
+  expanded.value = next
+}
+
+function openSub(row: AdminSubDir): void {
+  curSub.value = row
+  subAlias.value = row.alias || ''
+  subStack.value = [...subStack.value, row.path]
+  panel.value = 'subEdit'
+  void loadSubs(row.path)
+}
+
+/** 退一级：栈空就回栏目的小类树 */
+function leaveSub(): void {
+  const stack = subStack.value.slice(0, -1)
+  subStack.value = stack
+  const up = stack[stack.length - 1]
+  if (!up) {
+    curSub.value = null
+    panel.value = 'columnEdit'
+    void loadSubs(editCol.value?.path || '', true)
+    return
+  }
+  const row = findSub(up)
+  if (!row) {
+    curSub.value = null
+    panel.value = 'columnEdit'
+    return
+  }
+  curSub.value = row
+  subAlias.value = row.alias || ''
+  panel.value = 'subEdit'
+  void loadSubs(up)
+}
+
+/** 新建：单字段输入用系统输入弹窗（比再跳一层只有一行输入的面板轻） */
+function createChild(parent: string): void {
+  if (!parent) return
+  uni.showModal({
+    title: '新建小类',
+    editable: true,
+    placeholderText: '目录名',
+    success: (res) => {
+      if (!res.confirm) return
+      const name = (res.content || '').trim()
+      if (!name) return
+      createSub(parent, name)
+        .then(async () => {
+          await loadSubs(parent, true)
+          if (panel.value === 'columnEdit') {
+            const next = new Set(expanded.value)
+            next.add(parent)
+            expanded.value = next
+          }
+          uni.showToast({ title: '已新建', icon: 'none' })
+        })
+        .catch((err: any) => {
+          uni.showToast({ title: err?.reason || '新建失败', icon: 'none' })
+        })
+    },
+  })
+}
+
+function saveSubAlias(): void {
+  const sub = curSub.value
+  if (!sub) return
+  const alias = subAlias.value.trim()
+  subBusy.value = true
+  setSubAlias(sub.path, alias)
+    .then((res) => {
+      const saved = (res.name ?? alias).trim()
+      const parent = sub.path.split('/').slice(0, -1).join('/')
+      subLists.value = {
+        ...subLists.value,
+        [parent]: (subLists.value[parent] || []).map((s) =>
+          s.path === sub.path ? { ...s, alias: saved } : s,
+        ),
+      }
+      curSub.value = { ...sub, alias: saved }
+      subAlias.value = saved
+      uni.showToast({ title: saved ? '显示名已更新' : '已恢复用目录名', icon: 'none' })
     })
     .catch((err: any) => {
-      colsNotice.value = err?.reason || '保存失败'
+      uni.showToast({ title: err?.reason || '保存失败', icon: 'none' })
     })
     .finally(() => {
-      colsSaving.value = false
+      subBusy.value = false
     })
 }
+
+/** 目录改名：两道确认（先讲清代价，再输入新名字），绝不悄悄动 */
+function renameCurSub(): void {
+  const sub = curSub.value
+  if (!sub) return
+  uni.showModal({
+    title: '重命名目录',
+    content: `「${sub.name}」会改名。指向旧路径的双链和链接会失效；正文内容本身不会被改写。`,
+    confirmText: '继续',
+    success: (res) => {
+      if (!res.confirm) return
+      // 第一个弹窗还没收干净时立刻弹第二个，iOS 上会吞掉——隔一拍
+      setTimeout(() => {
+        uni.showModal({
+          title: '新的目录名',
+          editable: true,
+          content: sub.name,
+          placeholderText: '新目录名',
+          success: (r2) => {
+            if (r2.confirm) doRenameSub(sub, (r2.content || '').trim())
+          },
+        })
+      }, 320)
+    },
+  })
+}
+
+function doRenameSub(sub: AdminSubDir, name: string): void {
+  if (!name || name === sub.name) return
+  const oldPath = sub.path
+  const oldParent = oldPath.split('/').slice(0, -1).join('/')
+  renameSubDir(oldPath, name)
+    .then(async (out) => {
+      const newPath = out.path || oldPath
+      // 旧路径的缓存整片作废（它下面所有层都变了）
+      const next = { ...subLists.value }
+      for (const key of Object.keys(next)) {
+        if (key === oldPath || key.startsWith(oldPath + '/')) delete next[key]
+      }
+      subLists.value = next
+      // 下钻栈里以旧路径为前缀的条目一起搬家
+      subStack.value = subStack.value.map((p) =>
+        p === oldPath ? newPath : p.startsWith(oldPath + '/') ? newPath + p.slice(oldPath.length) : p,
+      )
+      const merged = { ...sub, name, path: newPath }
+      curSub.value = merged
+      await loadSubs(oldParent, true)
+      await loadSubs(newPath, true)
+      uni.showToast({ title: '目录已改名', icon: 'none' })
+    })
+    .catch((err: any) => {
+      uni.showToast({ title: err?.reason || '改名失败', icon: 'none' })
+    })
+}
+
+function removeCurSub(): void {
+  const sub = curSub.value
+  if (!sub) return
+  uni.showModal({
+    title: '删除这个小类？',
+    content: `「${sub.alias || sub.name}」目录会被删除。只有空目录能删，里面有文章时会被拒绝。`,
+    confirmText: '删除',
+    success: (res) => {
+      if (!res.confirm) return
+      const parent = sub.path.split('/').slice(0, -1).join('/')
+      deleteSub(sub.path)
+        .then(async () => {
+          await loadSubs(parent, true)
+          uni.showToast({ title: '已删除', icon: 'none' })
+          leaveSub()
+        })
+        .catch((err: any) => {
+          uni.showToast({ title: err?.reason || '删除失败', icon: 'none' })
+        })
+    },
+  })
+}
+
 
 /** 小类别名留空时回退的目录名 = 路径最后一段 */
 function dirName(path: string): string {
@@ -586,7 +878,6 @@ function dirName(path: string): string {
 }
 
 async function loadAdmin(): Promise<void> {
-  colsNotice.value = ''
   siteNotice.value = ''
   try {
     const full = await adminColumns()
@@ -624,29 +915,6 @@ function submitSite(): void {
     })
     .finally(() => {
       siteSaving.value = false
-    })
-}
-
-function submitColumns(): void {
-  colsSaving.value = true
-  // 小类别名空串回退为目录名——后端留空等价于「不设别名」，这里显式归一
-  const items = cols.value.map((c) => ({
-    ...c,
-    name: c.name.trim(),
-    brief: c.brief.trim(),
-    desc: c.desc.trim(),
-    subs: c.subs.map((sub) => ({ ...sub, name: (sub.name || '').trim() || dirName(sub.path) })),
-  }))
-  saveColumns(items)
-    .then((res) => {
-      colsNotice.value = res.message || '已保存'
-      uni.showToast({ title: '已保存', icon: 'none' })
-    })
-    .catch((err: any) => {
-      colsNotice.value = err?.reason || '保存失败'
-    })
-    .finally(() => {
-      colsSaving.value = false
     })
 }
 
@@ -1059,6 +1327,84 @@ onShow(() => {
   background-color: var(--accent-soft);
   padding: 2px 6px;
   border-radius: 6px;
+}
+
+/* ---------------- 小类树 ----------------
+   一行一个目录：展开箭头（只对可展开的行）→ 文件夹 → 名字 → 进详情箭头。
+   缩进由内联 padding-left 驱动（depth × 16px），深一层就往里收一格。 */
+.sub-cell {
+  gap: 10px;
+}
+
+/* 箭头热区：点它只切展开/收起，点整行才是进详情 */
+.fold-hit {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  margin-left: -6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 叶子行也占同样的宽度：缩进**只能**由 padding-left 决定，
+   否则窄缝会把层级差吃掉，父子行看起来齐平（真实踩过）。 */
+.fold-hit.is-leaf {
+  width: 30px;
+}
+
+.fold {
+  color: var(--faint);
+  transition: transform 160ms ease;
+}
+
+.fold.is-open {
+  transform: rotate(90deg);
+}
+
+.sub-ico {
+  flex: 0 0 auto;
+  color: var(--text-2);
+}
+
+/* 目录名 + 重命名按钮同一行 */
+.row-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.mini-btn {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 6px 14px;
+  border-radius: 9999px;
+  background-color: var(--accent-soft);
+}
+
+.mini-btn:active {
+  background-color: var(--bg-hover);
+}
+
+.empty-hint {
+  padding: 22px 16px;
+  text-align: center;
+}
+
+.empty-hint .muted {
+  font-size: 14px;
+  color: var(--faint);
 }
 
 .test-fail {
