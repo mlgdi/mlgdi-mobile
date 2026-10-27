@@ -339,8 +339,13 @@ def main() -> int:
 }
 """
         adm = adm.replace(anchor, hook, 1)
-        last_end = adm.rfind("@end")
-        adm = adm[:last_end] + method + adm[last_end:]
+        # 方法必须插进 AppDelegate 的 @implementation 里——插到文件末尾的
+        # 最后一个 @end 前会落进 UINavigationController(Orient) 分类，
+        # 编译报「no visible @interface declares the selector」（真实踩过）。
+        # applicationWillResignActive 一定在 AppDelegate 实现内，拿它当界碑。
+        boundary = "- (void)applicationWillResignActive:"
+        b = adm.index(boundary)
+        adm = adm[:b] + method + "\n" + adm[b:]
         appdelegate.write_text(adm, encoding="utf-8")
 
     print("SHARE-EXT: injected (target ShareNav, embeds PlugIns/ShareNav.appex)")
