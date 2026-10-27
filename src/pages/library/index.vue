@@ -387,12 +387,13 @@ function pickSub(path: string): void {
 }
 
 /** 侧栏选中：任意深度的目录都能直达（columnDocs 的前缀匹配对深层路径同样成立） */
-function onSideSelect(payload: { code: TabCode; sub: string }): void {
+function onSideSelect(payload: { code: TabCode; sub: string; stayOpen?: boolean }): void {
   activeTab.value = payload.code
   activeSub.value = payload.sub
   keyword.value = ''
   searching.value = false
-  sideOpen.value = false
+  // 点有子层的目录以展开为主，抽屉保持打开；点叶子/栏目才收
+  sideOpen.value = Boolean(payload.stayOpen)
   paged.reset()
   try {
     uni.setStorageSync('garden.column', payload.code)

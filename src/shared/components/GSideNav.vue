@@ -27,7 +27,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
-  (e: 'select', payload: { code: TabCode; sub: string }): void
+  /** stayOpen：点的是「有子层的目录」，展开/收起为主，抽屉不关 */
+  (e: 'select', payload: { code: TabCode; sub: string; stayOpen?: boolean }): void
 }>()
 
 const notes = useNotesStore()
@@ -138,8 +139,9 @@ const rows = computed<Row[]>(() =>
 )
 
 function pickCol(row: { code: ColumnCode; path: string; isCol: boolean }): void {
-  emit('select', { code: row.code, sub: row.path })
-  if (!row.isCol && hasChildren(row.path)) toggleFold(row.path)
+  const expandable = !row.isCol && hasChildren(row.path)
+  if (expandable) toggleFold(row.path)
+  emit('select', { code: row.code, sub: row.path, stayOpen: expandable })
 }
 
 /** 侧栏手势：从右往左滑（横向位移 > 60px 且明显大于纵向）收起 */
