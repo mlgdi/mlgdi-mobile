@@ -108,6 +108,16 @@ sedi "s/io\.dcloud\.HBuilder/$BUNDLE_ID/g" "$PBXPROJ"
 # 所以这里一律用 ${} 包住
 echo "替换 io.dcloud.HBuilder → ${BUNDLE_ID}（共 ${BEFORE} 处）"
 
+# Share Extension：分享面板里出现「渡己」。
+# 注入失败（脚本断言/plutil 校验不过）会自动还原并按单 target 构建，不阻塞主 App。
+log "4.5/9 Share Extension"
+if [ "${SKIP_SHARE_EXT:-0}" = "1" ]; then
+  echo "SKIP_SHARE_EXT=1：跳过分享扩展"
+else
+  python3 ci/add_share_extension.py "$HELLO/HBuilder-Hello.xcodeproj" "$APP_TARGET" \
+    || echo "⚠️ 分享扩展注入失败，继续无扩展构建（可用 SKIP_SHARE_EXT=1 显式跳过）"
+fi
+
 log "5/9 写 AppKey / 显示名 / 版本（Info.plist）"
 plist_set() {
   local key="$1" value="$2" type="${3:-string}"
@@ -140,6 +150,22 @@ data["CFBundleURLTypes"] = [
 p.write_bytes(plistlib.dumps(data))
 print("CFBundleURLTypes: mlgdi:// 已注册")
 PY
+
+# 开屏：用仓库里 Web 入口页风格的 storyboard 覆盖 SDK 自带的
+# 「HBuilder Hello + DCloud logo」白屏。LaunchScreen（系统开屏）与
+# LaunchScreenAD（DCloud 启动图）都换成同一设计；zh-Hans 的 .strings
+# 会把标签文本改回 ${APPNAME}，一并删掉。
+log "5.5/9 开屏页（渡己 · Mlgdi）"
+for SB in \
+  "$APP_TARGET/LaunchScreen.storyboard" \
+  "$APP_TARGET/LaunchScreenAD.storyboard" \
+  "$APP_TARGET/Base.lproj/LaunchScreen.storyboard"; do
+  if [ -f "$SB" ]; then cp ci/splash/LaunchScreen.storyboard "$SB"; fi
+done
+rm -f "$APP_TARGET"/zh-Hans.lproj/LaunchScreen.strings \
+      "$APP_TARGET"/en.lproj/LaunchScreen.strings \
+      "$APP_TARGET"/English.lproj/LaunchScreen.strings
+echo "开屏 storyboard 已覆盖"
 
 log "6/9 图标与本地化名称"
 # 图标：SDK 的 AppIcon.appiconset 是**空目录**，ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon

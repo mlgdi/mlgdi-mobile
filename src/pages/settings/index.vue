@@ -31,6 +31,20 @@
     </view>
 
     <view class="section">
+      <text class="section-label muted">捕捉</text>
+      <view class="card">
+        <view class="cell">
+          <view class="cell-main">
+            <text class="cell-title">剪贴板投递弹窗</text>
+            <text class="cell-sub muted">切回 App 时检测剪贴板，有内容就询问是否收进碎片箱</text>
+          </view>
+          <switch :checked="clipAsk" color="#0066cc" @change="toggleClip" />
+        </view>
+      </view>
+      <text class="note muted">iOS 系统会在首次读取时弹「允许粘贴」授权；关掉这个开关就完全不读剪贴板。</text>
+    </view>
+
+    <view class="section">
       <text class="section-label muted">账号</text>
       <view class="card">
         <view class="cell">
@@ -89,6 +103,18 @@ import { resolvedTheme, themeMode, setThemeMode, type ThemeMode } from '../../sh
 const auth = useAuthStore()
 const baseUrl = ref(getBaseUrl())
 const devices = ref<DeviceRow[]>([])
+
+/** 剪贴板询问开关：默认开；intake.ts 每次回前台现读，改完立即生效 */
+const clipAsk = ref(uni.getStorageSync('garden.intake.clip') !== 'off')
+
+function toggleClip(e: any): void {
+  clipAsk.value = Boolean(e?.detail?.value)
+  try {
+    uni.setStorageSync('garden.intake.clip', clipAsk.value ? 'on' : 'off')
+  } catch {
+    /* 存不进就本次会话有效 */
+  }
+}
 
 const themeOptions: Array<{ value: ThemeMode; label: string }> = [
   { value: 'system', label: '跟随系统' },

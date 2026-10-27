@@ -67,9 +67,18 @@ function askCapture(text: string, from: string): void {
  * 从后台切回前台：检测剪贴板。
  * 只在 App 端启用——H5 浏览器读剪贴板要么报错要么弹系统授权，得不偿失。
  */
+/** 设置开关：garden.intake.clip = 'off' 时不读剪贴板（默认开） */
+function clipAskEnabled(): boolean {
+  try {
+    return uni.getStorageSync('garden.intake.clip') !== 'off'
+  } catch {
+    return true
+  }
+}
+
 export async function askClipboardIntake(): Promise<void> {
   // #ifdef APP-PLUS
-  if (!hasSession()) return
+  if (!hasSession() || !clipAskEnabled()) return
   try {
     const text = (await readClipboard()).trim()
     if (!text || text === lastClip || !looksUseful(text)) return

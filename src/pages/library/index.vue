@@ -2,8 +2,7 @@
   <view :class="['page', `theme-${resolvedTheme}`]">
     <!-- 顶栏：品牌左对齐；右侧依次 搜索 / 碎片箱 / 设置 -->
     <view class="top-fixed">
-      <view class="safe-top" />
-      <GTopBar :elevated="scrolled">
+            <GTopBar :elevated="scrolled">
         <template #actions>
           <view class="icon-btn" @click="toggleSearch">
             <GIcon :name="searching ? 'close' : 'search'" :size="40" />
@@ -524,10 +523,6 @@ onPullDownRefresh(async () => {
   top: 0;
   z-index: 80;
   background-color: var(--bg);
-}
-
-.safe-top {
-  height: env(safe-area-inset-top);
 }
 
 .body {

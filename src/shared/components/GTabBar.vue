@@ -2,14 +2,14 @@
 /**
  * 自定义 TabBar：首页 + 五栏目，共 6 格。
  *
- * 选中态语言统一：未选中是「符号」，选中在同一位置「溶」成中文——
- *  - 首页：房子图标 → 「首页」
- *  - 栏目：字母 M/L/G/D/I → 「魔笺 / 灵溯 / 观悟 / 道寻 / 逸隅」
+ * 选中态（V2.2，对齐 Web 入口页导航）：**选中胶囊是一整颗滑动指示器**，
+ * 点某个格子，胶囊从上一个位置滑过来——不是每格自己长胶囊。
+ * 胶囊滑到哪，哪格的「符号（房子/字母）」溶成「中文名」，同 Web 入口页的效果。
  *
- * 为什么宽度锁死：底部横排 750rpx 分 6 格，每格 125rpx。若选中项变宽去挤邻居，
- * 文字会抖；所以变化只发生在胶囊内部（72 → 108rpx），格子宽度恒定。
+ * 高度：`--tabbar-h` 是**纯格子高度**，安全区只通过 padding-bottom 追加一次。
+ * （之前 height 里算了一遍 inset、padding 又算了一遍，底部凭空多出一条空白。）
  *
- * 为什么不用 uni 原生 tabBar：原生只支持静态图标 + 文案，做不了这种形变，
+ * 为什么不用 uni 原生 tabBar：原生只支持静态图标 + 文案，做不了滑动形变，
  * 也没法让每项带自己的栏目色。
  */
 import { computed } from 'vue'
@@ -65,6 +65,7 @@ function pick(code: TabCode): void {
   emit('select', code)
 }
 
+/** 每格自己的色（符号用）；胶囊的配色跟随「当前选中」的那格 */
 function tabStyle(item: TabItem): Record<string, string> {
   return {
     '--c': item.main,
@@ -73,10 +74,33 @@ function tabStyle(item: TabItem): Record<string, string> {
     '--c-line': tint(item.main, isDark.value ? 0.45 : 0.3),
   }
 }
+
+/** 选中格的下标：胶囊滑动位置 = 下标 × 格宽 + 居中偏移 */
+const activeIndex = computed(() => tabs.value.findIndex((t) => t.code === props.active))
+
+/** 滑动胶囊：left 用百分比走格心，再往回挪半个胶囊宽 */
+const gliderStyle = computed(() => {
+  const item = tabs.value[activeIndex.value] ?? tabs.value[0]
+  const left = `calc(${((activeIndex.value + 0.5) * 100) / 6}% - 58rpx)`
+  return {
+    left,
+    '--c': item.main,
+    '--ink': item.ink,
+    '--c-soft': tint(item.main, isDark.value ? 0.22 : 0.12),
+    '--c-line': tint(item.main, isDark.value ? 0.45 : 0.3),
+  }
+})
 </script>
 
 <template>
   <view :class="['gtab', { 'is-disabled': disabled }]">
+    <!-- 滑动选中胶囊：一整颗，随 active 在 6 格之间滑 -->
+    <view class="glider" :style="gliderStyle">
+      <text v-for="item in tabs" v-show="active === item.code" :key="item.code" class="glider-name">
+        {{ item.letter ? `${item.letter}·${item.name}` : item.name }}
+      </text>
+    </view>
+
     <view
       v-for="item in tabs"
       :key="item.code"
@@ -84,14 +108,9 @@ function tabStyle(item: TabItem): Record<string, string> {
       :style="tabStyle(item)"
       @click="pick(item.code)"
     >
-      <view :class="['cap', { on: active === item.code }]">
-        <!-- 未选中符号：图标 / 字母共用同一块位置，形变时中心不动 -->
-        <view class="sym">
-          <GIcon v-if="item.icon" :name="item.icon" :size="38" :weight="1.9" />
-          <text v-else class="letter">{{ item.letter }}</text>
-        </view>
-        <!-- 选中态中文 -->
-        <text class="name">{{ item.letter ? `${item.letter}·${item.name}` : item.name }}</text>
+      <view :class="['sym', { on: active === item.code }]">
+        <GIcon v-if="item.icon" :name="item.icon" :size="38" :weight="1.9" />
+        <text v-else class="letter">{{ item.letter }}</text>
       </view>
     </view>
   </view>
@@ -106,7 +125,8 @@ function tabStyle(item: TabItem): Record<string, string> {
   z-index: 90;
   display: flex;
   align-items: flex-start;
-  height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
+  /* 纯格子高度；安全区只在 padding 里追加一次（修复底部双倍空白） */
+  height: var(--tabbar-h);
   padding-bottom: env(safe-area-inset-bottom);
   background-color: var(--surface);
   border-top: 1rpx solid var(--line);
@@ -128,49 +148,54 @@ function tabStyle(item: TabItem): Record<string, string> {
   justify-content: center;
 }
 
-.tab:active {
-  background-color: var(--surface-2);
-}
-
-.cap {
-  position: relative;
-  width: 72rpx;
+/* 滑动选中胶囊：宽度恒定 116rpx，left 由内联样式驱动 */
+.glider {
+  position: absolute;
+  top: calc((var(--tabbar-h) - 72rpx) / 2);
+  width: 116rpx;
   height: 72rpx;
   border-radius: 36rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  background-color: transparent;
-  border: 1rpx solid transparent;
-  transition:
-    width 240ms cubic-bezier(0.34, 1.56, 0.64, 1),
-    background-color 200ms ease,
-    border-color 200ms ease,
-    transform 80ms ease;
-}
-
-.tab:active .cap {
-  transform: scale(0.94);
-}
-
-/* 6 格时 120rpx 会顶满格子，收到 108rpx 留出呼吸 */
-.cap.on {
-  width: 116rpx;
   background-color: var(--c-soft);
-  border-color: var(--c-line);
+  border: 1rpx solid var(--c-line);
+  transition: left 260ms cubic-bezier(0.34, 1.3, 0.5, 1);
 }
 
-.sym {
+.glider-name {
   position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  margin-top: -12rpx;
+  text-align: center;
+  font-size: 24rpx;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+  white-space: nowrap;
+  animation: glider-name-in 180ms ease both;
+}
+
+@keyframes glider-name-in {
+  from {
+    opacity: 0;
+    transform: translateY(8rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 符号（房子/字母）：未选中常亮，被胶囊盖住时淡出 */
+.sym {
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--c);
   opacity: 0.8;
   transition:
-    opacity 90ms ease,
-    transform 90ms ease;
+    opacity 120ms ease,
+    transform 120ms ease;
 }
 
 .letter {
@@ -179,28 +204,8 @@ function tabStyle(item: TabItem): Record<string, string> {
   line-height: 1;
 }
 
-.cap.on .sym {
+.sym.on {
   opacity: 0;
-  transform: translateY(-10rpx) scale(0.86);
-}
-
-.name {
-  position: absolute;
-  font-size: 24rpx;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0;
-  color: var(--ink);
-  opacity: 0;
-  transform: translateY(10rpx);
-  transition:
-    opacity 160ms ease 90ms,
-    transform 160ms ease 90ms;
-  white-space: nowrap;
-}
-
-.cap.on .name {
-  opacity: 1;
-  transform: translateY(0);
+  transform: scale(0.86);
 }
 </style>

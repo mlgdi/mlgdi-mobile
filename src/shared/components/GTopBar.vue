@@ -48,8 +48,12 @@ const emit = defineEmits<{ (e: 'back'): void }>()
   display: flex;
   align-items: center;
   gap: 8rpx;
-  height: 88rpx;
+  height: calc(88rpx + env(safe-area-inset-top));
   padding: 0 32rpx;
+  /* 顶栏自带状态栏安全区：navigationStyle: custom 下每个页面都要躲开刘海，
+     之前只有库列表页自己垫了 .safe-top，其它页面顶栏被系统状态栏压住。
+     收进组件里后，页面不需要再各自处理。 */
+  padding-top: env(safe-area-inset-top);
   background-color: transparent;
   border-bottom: 1rpx solid transparent;
   transition:

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="16096" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" useTraitCollections="YES" colorMatched="YES" initialViewController="01J-lp-oVM">
+    <device id="retina4_7" orientation="portrait" appearance="light"/>
+    <dependencies>
+        <deployment identifier="iOS"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="16087"/>
+    </dependencies>
+    <scenes>
+        <scene sceneID="EHf-IW-A2E">
+            <objects>
+                <viewController id="01J-lp-oVM" sceneMemberID="viewController">
+                    <layoutGuides>
+                        <viewControllerLayoutGuide type="top" id="aN7-qZ-KCL"/>
+                        <viewControllerLayoutGuide type="bottom" id="5o6-IB-QEo"/>
+                    </layoutGuides>
+                    <view key="view" contentMode="scaleToFill" id="z0m-pv-cfa">
+                        <rect key="frame" x="0.0" y="0.0" width="375" height="667"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                        <subviews>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="渡己" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" translatesAutoresizingMaskIntoConstraints="NO" id="lb-title">
+                                <constraints>
+                                    <constraint firstAttribute="height" constant="90" id="c1"/>
+                                </constraints>
+                                <fontDescription key="fontDescription" type="system" weight="heavy" pointSize="60"/>
+                                <color key="textColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="Mlgdi · 个人知识花园" textAlignment="center" baselineAdjustment="alignBaselines" translatesAutoresizingMaskIntoConstraints="NO" id="lb-sub">
+                                <constraints>
+                                    <constraint firstAttribute="height" constant="30" id="c2"/>
+                                </constraints>
+                                <fontDescription key="fontDescription" type="system" weight="medium" pointSize="18"/>
+                                <color key="textColor" white="1" alpha="0.72" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="M     L     G     D     I" textAlignment="center" baselineAdjustment="alignBaselines" translatesAutoresizingMaskIntoConstraints="NO" id="lb-cols">
+                                <constraints>
+                                    <constraint firstAttribute="height" constant="26" id="c3"/>
+                                </constraints>
+                                <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="16"/>
+                                <color key="textColor" white="1" alpha="0.45" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
+                                <nil key="highlightedColor"/>
+                            </label>
+                        </subviews>
+                        <color key="backgroundColor" red="0.043" green="0.114" blue="0.286" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
+                        <constraints>
+                            <constraint firstItem="lb-title" firstAttribute="centerX" secondItem="z0m-pv-cfa" secondAttribute="centerX" id="a1"/>
+                            <constraint firstItem="lb-title" firstAttribute="centerY" secondItem="z0m-pv-cfa" secondAttribute="centerY" constant="-56" id="a2"/>
+                            <constraint firstAttribute="trailing" secondItem="lb-title" secondAttribute="trailing" constant="1" id="a3"/>
+                            <constraint firstItem="lb-title" firstAttribute="leading" secondItem="z0m-pv-cfa" secondAttribute="leading" constant="1" id="a4"/>
+                            <constraint firstItem="lb-sub" firstAttribute="centerX" secondItem="z0m-pv-cfa" secondAttribute="centerX" id="b1"/>
+                            <constraint firstItem="lb-sub" firstAttribute="top" secondItem="lb-title" secondAttribute="bottom" constant="10" id="b2"/>
+                            <constraint firstAttribute="trailing" secondItem="lb-sub" secondAttribute="trailing" constant="1" id="b3"/>
+                            <constraint firstItem="lb-sub" firstAttribute="leading" secondItem="z0m-pv-cfa" secondAttribute="leading" constant="1" id="b4"/>
+                            <constraint firstItem="lb-cols" firstAttribute="centerX" secondItem="z0m-pv-cfa" secondAttribute="centerX" id="d1"/>
+                            <constraint firstAttribute="bottom" secondItem="lb-cols" secondAttribute="bottom" constant="72" id="d2"/>
+                        </constraints>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder"/>
+            </objects>
+            <point key="canvasLocation" x="-359" y="240"/>
+        </scene>
+    </scenes>
+    <resources/>
+</document>
