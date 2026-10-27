@@ -1,5 +1,6 @@
 # package-ipa.ps1 - Trigger the iOS unsigned build on GitHub Actions,
-# wait for it to finish, then download the IPA to dist-ipa\.
+# wait for it to finish, then download the IPA, name it by app version
+# (from package.json) and copy it to a network share.
 #
 # Token: read from secrets\gh_token.txt (a fine-grained PAT with Actions
 # read/write). If the file is missing you will be asked to paste the token
@@ -7,11 +8,14 @@
 #
 # Usage:  powershell -ExecutionPolicy Bypass -File ci\package-ipa.ps1
 #         [-SkipBuild]   reuse the latest successful run instead of a new one
-#         [-CopyTo\\server\share]  also copy the IPA to a network share
+#         [-CopyTo ""]   override the destination share ("" = skip the copy)
+#
+# NOTE: keep this file ASCII-only. PowerShell 5.1 reads BOM-less scripts
+# as ANSI (GBK on this machine), non-ASCII comments would garble.
 
 param(
     [switch]$SkipBuild,
-    [string]$CopyTo = "\\192.168.1.145\我的文件"
+    [string]$CopyTo = "\\192.168.1.145\Download"
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,6 +24,11 @@ $Repo   = "mlgdi/mlgdi-mobile"
 $Root   = Split-Path -Parent $PSScriptRoot   # .app-mobile
 $TokenFile = Join-Path $Root "secrets\gh_token.txt"
 $OutDir = Join-Path $Root "dist-ipa"
+
+# ---------- version (IPA is named by app version, single source: package.json) ----------
+$Pkg = Get-Content (Join-Path $Root "package.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+$AppVersion = [string]$Pkg.version
+Write-Host "App version: v$AppVersion" -ForegroundColor Cyan
 
 # ---------- token ----------
 if (Test-Path $TokenFile) {
@@ -112,22 +121,24 @@ if (Test-Path $Tmp) { Remove-Item $Tmp -Recurse -Force }
 $Ipa = Get-ChildItem -Path $Tmp -Recurse -Filter *.ipa | Select-Object -First 1
 if (-not $Ipa) { throw "no .ipa inside the artifact zip" }
 
-$Dest = Join-Path $OutDir ("garden-{0}.ipa" -f (Get-Date -Format "yyyyMMdd-HHmm"))
+$Dest = Join-Path $OutDir ("garden-v{0}.ipa" -f $AppVersion)
 Copy-Item $Ipa.FullName $Dest -Force
 Remove-Item $Tmp -Recurse -Force
 Remove-Item $ZipPath -Force
 Write-Host "    saved: $Dest" -ForegroundColor Green
 
-# ---------- optional network copy ----------
+# ---------- network copy ----------
 if ($CopyTo -ne "") {
     try {
         Copy-Item $Dest $CopyTo -Force
         Write-Host "    copied to $CopyTo" -ForegroundColor Green
     } catch {
         Write-Host "    copy to share failed: $_" -ForegroundColor Yellow
+        Write-Host "    IPA is still local: $Dest" -ForegroundColor Yellow
     }
 }
 
 Write-Host ""
 Write-Host "Done. Install the IPA with TrollStore:" -ForegroundColor Green
 Write-Host "  $Dest"
+if ($CopyTo -ne "") { Write-Host "  $CopyTo\garden-v$AppVersion.ipa" }

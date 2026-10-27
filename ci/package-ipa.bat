@@ -2,7 +2,7 @@
 rem package-ipa.bat - double-click launcher for ci\package-ipa.ps1
 rem Builds an unsigned IPA on GitHub Actions and downloads it to dist-ipa\.
 rem Optional: pass a UNC share to also copy the IPA there, e.g.
-rem   ci\package-ipa.bat "\\192.168.1.145\My Files"
+rem   ci\package-ipa.bat ""          (skip the network copy)
 
 setlocal
 set SCRIPT_DIR=%~dp0
