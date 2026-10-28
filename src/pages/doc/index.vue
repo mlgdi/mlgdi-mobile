@@ -200,6 +200,27 @@
       </scroll-view>
     </view>
 
+    <!-- 分享：复制链接 / 生成图片 -->
+    <GShareSheet
+      :open="shareOpen"
+      :title="doc?.title || ''"
+      :url="shareUrl"
+      :is-public="shareIsPublic"
+      @close="shareOpen = false"
+      @poster="posterOpen = true"
+    />
+
+    <GSharePoster
+      :open="posterOpen"
+      :title="doc?.title || ''"
+      :url="shareUrl"
+      :column-name="col?.name || ''"
+      :column-color="col?.main || '#0066cc'"
+      :date-text="doc ? formatDate(doc.updated_at || doc.created_at) : ''"
+      :excerpt="doc?.excerpt || ''"
+      @close="posterOpen = false"
+    />
+
     <!-- 归档 / 移动：底部抽屉选目标目录，选完立刻执行 -->
     <GDirSheet
       :open="dirSheet"
@@ -218,6 +239,8 @@ import { onLoad, onPageScroll, onUnload } from '@dcloudio/uni-app'
 import GTopBar from '../../shared/components/GTopBar.vue'
 import GIcon from '../../shared/components/GIcon.vue'
 import GDirSheet from '../../shared/components/GDirSheet.vue'
+import GShareSheet from '../../shared/components/GShareSheet.vue'
+import GSharePoster from '../../shared/components/GSharePoster.vue'
 import {
   archiveDoc,
   doc as apiDoc,
@@ -468,26 +491,34 @@ function toggleTheme(): void {
   menuOpen.value = false
 }
 
-/** 分享：App 走系统分享面板；H5 退化为复制链接 */
-function shareDoc(): void {
-  const link = `${getBaseUrl().replace(/\/$/, '')}/doc/${docId.value}`
-  // #ifdef APP-PLUS
-  const plusAny = (globalThis as any).plus
-  if (plusAny?.share?.sendWithSystem) {
-    plusAny.share.sendWithSystem(
-      { content: `${doc.value?.title || '渡己'}\n${link}`, href: link },
-      () => uni.showToast({ title: '已分享', icon: 'none' }),
-      () => uni.setClipboardData({ data: link }),
-    )
-    menuOpen.value = false
-    return
+/* ---------------- 分享 ----------------
+   只保留两条真正能用的路：复制链接、生成带二维码的分享图。
+   系统分享面板里能通往的地方大多是半成品（微信要 JS-SDK 卡片、朋友圈没接口），
+   先把这两条做扎实，其余渠道之后再补。 */
+
+/** 公开且已发布 → 对外链接 `/p/<slug>`；否则给内部链接（打开需登录） */
+const shareUrl = computed(() => {
+  const d = doc.value
+  if (!d) return ''
+  const base = getBaseUrl().replace(/\/$/, '')
+  if (d.slug && d.visibility === 'public' && d.status === 'published') {
+    return `${base}/p/${d.slug}`
   }
-  // #endif
-  uni.setClipboardData({
-    data: link,
-    success: () => uni.showToast({ title: '链接已复制', icon: 'none' }),
-  })
+  return `${base}/doc/${d.id}`
+})
+
+const shareIsPublic = computed(() => {
+  const d = doc.value
+  return Boolean(d && d.slug && d.visibility === 'public' && d.status === 'published')
+})
+
+const shareOpen = ref(false)
+const posterOpen = ref(false)
+
+function shareDoc(): void {
+  if (!doc.value) return
   menuOpen.value = false
+  shareOpen.value = true
 }
 
 /** 删除：二次确认，删完回列表 */
