@@ -54,7 +54,10 @@
       "path": "pages/settings/index",
       "style": {
         "navigationStyle": "custom",
-        "navigationBarTitleText": "设置"
+        "navigationBarTitleText": "设置",
+        "app-plus": {
+          "popGesture": "none"
+        }
       }
     },
     {

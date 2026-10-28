@@ -1,5 +1,9 @@
 <template>
-  <view :class="['page', `theme-${resolvedTheme}`]">
+  <view
+    :class="['page', `theme-${resolvedTheme}`]"
+    @touchstart="onSwipeStart"
+    @touchend="onSwipeEnd"
+  >
     <GTopBar back :title="panelTitle" :elevated="true" @back="back" />
 
     <!-- ============ 一级：菜单 ============ -->
@@ -9,7 +13,6 @@
           <view class="cell" @click="openPanel('general')">
             <view class="cell-main">
               <text class="cell-title">偏好</text>
-              <text class="cell-sub muted">主题 · 剪贴板投递 · 版本</text>
             </view>
             <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
           </view>
@@ -25,12 +28,11 @@
       </view>
 
       <view v-if="auth.isAdmin" class="section">
-        <text class="section-label muted">管理（改配置 · 重扫磁盘）</text>
+        <text class="section-label muted">管理</text>
         <view class="card">
           <view class="cell" @click="openPanel('site')">
             <view class="cell-main">
               <text class="cell-title">站点信息</text>
-              <text class="cell-sub muted">名称 · 标语 · 描述 · 作者</text>
             </view>
             <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
           </view>
@@ -38,7 +40,6 @@
           <view class="cell" @click="openPanel('columns')">
             <view class="cell-main">
               <text class="cell-title">栏目与小类</text>
-              <text class="cell-sub muted">五个栏目的名称、简介与小类别名</text>
             </view>
             <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
           </view>
@@ -46,7 +47,6 @@
           <view class="cell" @click="openPanel('ai')">
             <view class="cell-main">
               <text class="cell-title">AI 设置</text>
-              <text class="cell-sub muted">服务器与密钥 · 工作流启停</text>
             </view>
             <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
           </view>
@@ -54,9 +54,8 @@
           <view class="cell" @click="syncDisk">
             <view class="cell-main">
               <text class="cell-title">同步磁盘</text>
-              <text class="cell-sub muted">{{
-                syncing ? '正在重扫磁盘…' : '在电脑上改了文件？重扫一遍让 App 立刻看到'
-              }}</text>
+              <!-- 只在真的在扫的时候说话：闲时那行解释属于「说明书」，不是信息 -->
+              <text v-if="syncing" class="cell-sub muted">正在重扫…</text>
             </view>
             <view :class="['chev', syncing ? 'is-spin' : '']">
               <GIcon name="refresh" :size="30" :weight="2" />
@@ -106,7 +105,6 @@
             </view>
           </view>
         </view>
-        <text class="note muted">主题只存在本机，不会改动网页端（与 Web「偏好跟账号」刻意不同）。</text>
       </view>
 
       <view class="section">
@@ -115,20 +113,8 @@
           <view class="cell">
             <view class="cell-main">
               <text class="cell-title">剪贴板投递弹窗</text>
-              <text class="cell-sub muted">切回 App 时检测剪贴板，有内容就询问是否收进碎片箱</text>
             </view>
             <switch :checked="clipAsk" color="#0066cc" @change="toggleClip" />
-          </view>
-        </view>
-        <text class="note muted">iOS 系统会在首次读取时弹「允许粘贴」授权；关掉这个开关就完全不读剪贴板。</text>
-      </view>
-
-      <view class="section">
-        <text class="section-label muted">关于</text>
-        <view class="card">
-          <view class="cell">
-            <text class="cell-title">版本</text>
-            <text class="cell-sub muted">v{{ appVersion }}</text>
           </view>
         </view>
       </view>
@@ -137,7 +123,7 @@
     <!-- ============ 二级：站点信息 ============ -->
     <template v-else-if="panel === 'site'">
       <view class="section">
-        <text class="section-label muted">品牌字段（写入 site.yaml，保存后立即生效）</text>
+        <text class="section-label muted">品牌字段</text>
         <view class="card padded">
           <view class="fld">
             <text class="fld-label">站点名称</text>
@@ -182,7 +168,6 @@
          每栏单独保存（整份回写，只动这一栏的数据）。 -->
     <template v-else-if="panel === 'columns'">
       <view class="section">
-        <text class="section-label muted">点栏目进入编辑；改动在编辑页单独保存</text>
         <view class="card">
           <template v-for="(col, i) in cols" :key="col.code">
             <view v-if="i > 0" class="divider" />
@@ -207,9 +192,7 @@
          小类是目录，支持多层级——点行进下一级，逐层下钻。 -->
     <template v-else-if="panel === 'columnEdit' && editCol">
       <view class="section">
-        <text class="section-label muted"
-          >{{ editCol.code }} · {{ editCol.name }}（目录 {{ editCol.path }}）</text
-        >
+        <text class="section-label muted">{{ editCol.path }}</text>
         <view class="card">
           <view v-if="subLoading[editCol.path]" class="cell">
             <text class="muted">加载中…</text>
@@ -252,9 +235,6 @@
 
       <view class="section">
         <button class="btn" @click="createChild(editCol.path)">新建小类</button>
-        <text class="note muted"
-          >小类就是目录：可以一层层往下建。目录名只允许中文/字母/数字，改名与删除在下一级页面里。</text
-        >
       </view>
     </template>
 
@@ -270,7 +250,7 @@
 
         <view class="card padded">
           <view class="fld">
-            <text class="fld-label">显示名（留空 = 用目录名）</text>
+            <text class="fld-label">显示名</text>
             <input
               v-model="subAlias"
               class="fld-input"
@@ -279,7 +259,7 @@
             />
           </view>
           <view class="fld">
-            <text class="fld-label">目录名（物理路径）</text>
+            <text class="fld-label">目录名</text>
             <view class="row-inline">
               <text class="mono">{{ curSub.name }}</text>
               <text v-if="!curSub.missing" class="mini-btn" @click="renameCurSub">重命名</text>
@@ -294,7 +274,6 @@
         >
           {{ subBusy ? '保存中…' : '保存显示名' }}
         </button>
-        <text class="note muted">显示名只影响侧栏与列表的呈现，目录本身不动，双链安全。</text>
       </view>
 
       <!-- 同级顺序：顺序只存在站点的 subs 配置里（磁盘枚举是字母序），
@@ -319,7 +298,6 @@
             下移
           </button>
         </view>
-        <text class="note muted">调整侧栏与列表里的先后顺序，保存即生效。</text>
       </view>
 
       <view class="section">
@@ -365,7 +343,7 @@
          拨一下即整份回写并热加载——移动端不做提示词编辑（那是 Obsidian 的事）。 -->
     <template v-else-if="panel === 'ai'">
       <view class="section">
-        <text class="section-label muted">引擎与密钥（写入 garden.local.yaml，保存即生效）</text>
+        <text class="section-label muted">引擎与密钥</text>
         <view class="card padded">
           <view class="fld">
             <text class="fld-label">引擎</text>
@@ -385,7 +363,7 @@
             </view>
           </view>
           <view class="fld">
-            <text class="fld-label">接口地址（OpenAI 兼容，留 /v1）</text>
+            <text class="fld-label">接口地址</text>
             <input v-model="ai.llm_api_base" class="fld-input" placeholder="https://api.deepseek.com/v1" />
           </view>
           <view class="fld">
@@ -397,7 +375,7 @@
             <input v-model="ai.llm_model" class="fld-input" placeholder="例 deepseek-chat" />
           </view>
           <view class="fld">
-            <text class="fld-label">封面模型（留空 = 不启用）</text>
+            <text class="fld-label">封面模型</text>
             <input v-model="ai.llm_image_model" class="fld-input" />
           </view>
         </view>
@@ -413,7 +391,7 @@
       </view>
 
       <view class="section">
-        <text class="section-label muted">工作流启停（拨动即保存并热加载）</text>
+        <text class="section-label muted">工作流</text>
         <view class="card">
           <template v-for="(wf, i) in wfs" :key="wf.key">
             <view v-if="i > 0" class="divider" />
@@ -435,7 +413,6 @@
           </template>
           <view v-if="!wfs.length" class="cell"><text class="muted">加载中…</text></view>
         </view>
-        <text class="note muted">提示词与人设在 .garden/workflows.yaml（用 Obsidian 编辑），这里只做启停。</text>
       </view>
     </template>
 
@@ -463,7 +440,7 @@
         </view>
         <view class="card">
           <view v-if="!devices.length" class="cell">
-            <text class="muted">没有设备记录（Web 端不登记设备）</text>
+            <text class="muted">没有设备记录</text>
           </view>
           <template v-for="(d, i) in devices" :key="d.id">
             <view v-if="i > 0" class="divider" />
@@ -479,7 +456,6 @@
             </view>
           </template>
         </view>
-        <text class="note muted">吊销后该设备的下一个请求即失效；换机丢手机时用得上。</text>
       </view>
     </template>
 
@@ -489,29 +465,25 @@
         <view class="card about-card">
           <text class="about-brand">渡己・Mlgdi</text>
           <text class="about-ver">v{{ appVersion }}</text>
-          <text class="about-p">自托管个人知识中枢 · 移动端。Markdown 文件是唯一数据源（SSOT），
-正文中的一切改动最终都落回你自己的 vault，索引只是缓存。</text>
-          <text class="about-p">五个栏目（魔笺 / 灵溯 / 观悟 / 道寻 / 逸隅）+ 碎片箱 +
-AI 洗稿，与网页端、Obsidian 共用同一份数据。</text>
+          <text class="about-p">自托管个人知识中枢 · Markdown 是唯一数据源。</text>
         </view>
       </view>
       <view class="section">
         <view class="card">
           <view class="cell">
-            <text class="cell-title">服务器</text>
-            <text class="cell-sub muted">{{ baseUrl }}</text>
+            <view class="cell-main">
+              <text class="cell-title">服务器</text>
+              <text class="cell-sub muted">{{ baseUrl }}</text>
+            </view>
           </view>
         </view>
-      </view>
-      <view class="section">
-        <text class="note muted">移动端 UI 规范与变更记录见仓库 docs/ 与 CHANGELOG.md。</text>
       </view>
     </template>
 
     <!-- ============ 三级：工作流编辑（跳转式，与栏目编辑同一操作语言） ============ -->
     <template v-else-if="panel === 'wfEdit' && editWf">
       <view class="section">
-        <text class="section-label muted">{{ editWf.key }} · {{ editWf.scope }}（保存整份回写并热加载）</text>
+        <text class="section-label muted">{{ editWf.key }} · {{ editWf.scope }}</text>
         <view class="card padded">
           <view class="fld">
             <text class="fld-label">名称</text>
@@ -526,7 +498,7 @@ AI 洗稿，与网页端、Obsidian 共用同一份数据。</text>
             <switch :checked="editWf.enabled" color="#0066cc" @change="editWf.enabled = Boolean(($event as any)?.detail?.value)" />
           </view>
           <view class="fld">
-            <text class="fld-label">提示词（内置动作留空 = 用默认）</text>
+            <text class="fld-label">提示词</text>
             <textarea
               v-model="editWf.prompt"
               class="fld-input fld-area"
@@ -651,6 +623,30 @@ function back(): void {
   const pages = getCurrentPages()
   if (pages.length > 1) uni.navigateBack()
   else uni.reLaunch({ url: '/pages/library/index' })
+}
+
+/* ---------------- 右滑返回 ----------------
+   设置是多级面板但只有**一个真实页面**，iOS 原生的侧滑返回会把整页 pop 掉，
+   于是「三级里右滑」直接回到库列表，而不是上一级。所以 pages.json 里把
+   popGesture 关掉（"none"），这里自己按面板层级返回。
+   判定：起点靠左 80px 内、横向位移 ≥ 60、纵向抖动 < 70、600ms 内完成。 */
+const swipeStart = { x: 0, y: 0, t: 0 }
+
+function onSwipeStart(e: any): void {
+  const t = e?.touches?.[0] || e?.changedTouches?.[0]
+  if (!t) return
+  swipeStart.x = Number(t.clientX ?? t.pageX ?? 0)
+  swipeStart.y = Number(t.clientY ?? t.pageY ?? 0)
+  swipeStart.t = Date.now()
+}
+
+function onSwipeEnd(e: any): void {
+  const t = e?.changedTouches?.[0]
+  if (!t) return
+  const dx = Number(t.clientX ?? t.pageX ?? 0) - swipeStart.x
+  const dy = Math.abs(Number(t.clientY ?? t.pageY ?? 0) - swipeStart.y)
+  const quick = Date.now() - swipeStart.t < 600
+  if (swipeStart.x < 80 && dx >= 60 && dy < 70 && quick) back()
 }
 
 /** 剪贴板询问开关：默认开；intake.ts 每次回前台现读，改完立即生效 */
@@ -1713,6 +1709,36 @@ onShow(() => {
 
 .cell-sub.is-missing {
   color: #ff9f0a;
+}
+
+/* ---------------- 关于 ----------------
+   `<text>` 在 uni 里是 inline：不加 flex/block，品牌名、版本号、简介会连成一行
+   （曾经真的连成「渡己・Mlgdiv0.7.1自托管…」）。整体用列布局一次性解决。 */
+.about-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 20px 16px;
+}
+
+.about-brand {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  color: var(--text);
+}
+
+.about-ver {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.about-p {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
 }
 
 .mini-btn.is-off {
