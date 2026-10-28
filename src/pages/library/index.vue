@@ -71,7 +71,7 @@
           <view class="col-titles">
             <view class="col-name-row">
               <text class="col-name">{{ activeCol.name }}</text>
-              <text class="col-pill">{{ pagedTotal }} 篇</text>
+              <text class="col-pill">{{ activeSub ? `本目录 ${pagedTotal} 篇` : `${pagedTotal} 篇` }}</text>
               <view class="col-new" @click.stop="openNew">
                 <GIcon name="plus" :size="24" :weight="2.6" />
                 <text class="col-new-t">新建</text>
@@ -85,6 +85,19 @@
         <text v-if="colDesc" class="col-desc">{{ colDesc }}</text>
       </view>
 
+      <!-- 当前进的是某个小类：一条可清除的筛选条。
+           侧栏点进来后没有它的话，页面看着还停在栏目根（空目录时尤其像「点了没反应」）。 -->
+      <view v-if="!searching && !isHome && activeSub" class="sub-filter" :style="heroStyle">
+        <GIcon name="folder" :size="28" :weight="2" class="sub-filter-ico" />
+        <view class="sub-filter-main">
+          <text class="sub-filter-name">{{ activeSubLabel }}</text>
+          <text class="sub-filter-path">{{ activeSub }}</text>
+        </view>
+        <view class="sub-filter-x" @click="clearSub">
+          <GIcon name="close" :size="26" :weight="2.4" />
+        </view>
+      </view>
+
       <!-- 列表 -->
       <view v-if="notes.loading && !notes.docs.length" class="state">
         <text class="state-text">正在加载…</text>
@@ -96,8 +109,8 @@
       </view>
 
       <view v-else-if="!items.length" class="state">
-        <text class="state-strong">{{ keyword ? '没有匹配的内容' : '这个栏目还是空的' }}</text>
-        <text class="state-text">{{ keyword ? '换个词试试，或清空搜索' : '投一条碎片，或从本机导入 .md' }}</text>
+        <text class="state-strong">{{ emptyTitle }}</text>
+        <text class="state-text">{{ emptyHint }}</text>
       </view>
 
       <view v-else-if="!isHome" class="list">
@@ -300,6 +313,33 @@ const colUpdated = computed(() => {
 
 /** 已选子类的目录名，用于在列表元信息里去掉重复的那一层 */
 const activeSubName = computed(() => (activeSub.value ? activeSub.value.split('/').pop() || '' : ''))
+
+/** 当前小类的显示名：站点配置里有别名就用别名（与侧栏一致） */
+const activeSubLabel = computed(() => {
+  if (!activeSub.value) return ''
+  const col = siteStore.info.columns?.find((c) => c.code === activeTab.value)
+  const hit = col?.subs?.find((x) => x.path === activeSub.value)
+  return (hit?.name || '').trim() || activeSubName.value
+})
+
+/** 空态分三种：搜索无结果 / 这个小类没文章 / 整个栏目没文章 */
+const emptyTitle = computed(() => {
+  if (keyword.value) return '没有匹配的内容'
+  if (activeSub.value) return `「${activeSubLabel.value}」里还没有文章`
+  return '这个栏目还是空的'
+})
+
+const emptyHint = computed(() => {
+  if (keyword.value) return '换个词试试，或清空搜索'
+  if (activeSub.value) return '投一条碎片，或从本机导入 .md；点上方筛选条右侧的 ✕ 可回到栏目全部'
+  return '投一条碎片，或从本机导入 .md'
+})
+
+/** 退出小类筛选，回到整个栏目 */
+function clearSub(): void {
+  activeSub.value = ''
+  paged.reset()
+}
 
 /** 栏目头卡配色：浅色模式淡，深色模式加重，否则近黑底上看不出浸染 */
 const heroStyle = computed(() => {
@@ -547,6 +587,89 @@ onPullDownRefresh(async () => {
 }
 
 /* ---------------- 栏目头部 ---------------- */
+/* 空态：标题与说明必须分两行 —— uni 的 <text> 默认 inline，
+   两个 text 挨着写会连成一句话（「…里还没有文章投一条碎片…」就是这么来的）。 */
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16rpx;
+  padding: 88rpx 40rpx;
+  text-align: center;
+}
+
+.state-strong {
+  font-size: 32rpx;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.state-text {
+  font-size: 26rpx;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+/* 小类筛选条：说明「现在只看这个目录」，并给一键退回栏目 */
+.sub-filter {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin: 18rpx 0 2rpx;
+  padding: 16rpx 20rpx;
+  border-radius: var(--r-md);
+  background-color: var(--c-soft);
+  border: 1rpx solid var(--c-line);
+}
+
+.sub-filter-ico {
+  flex: 0 0 auto;
+  color: var(--c-ink);
+}
+
+.sub-filter-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.sub-filter-name {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--c-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub-filter-path {
+  font-size: 21rpx;
+  color: var(--c-ink);
+  opacity: 0.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub-filter-x {
+  flex: 0 0 auto;
+  width: 56rpx;
+  height: 56rpx;
+  margin-right: -8rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-full);
+  color: var(--c-ink);
+}
+
+.sub-filter-x:active {
+  background-color: var(--bg-hover);
+}
+
 .col-hero {
   position: relative;
   overflow: hidden;

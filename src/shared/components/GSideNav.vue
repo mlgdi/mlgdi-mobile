@@ -38,16 +38,43 @@ const isDark = computed(() => resolvedTheme.value === 'dark')
 /** 收起/展开状态：key 是目录完整路径。默认收起，选中路径的祖先自动展开 */
 const collapsed = ref<Set<string>>(new Set())
 
-function hasChildren(path: string): boolean {
-  for (const r of notes.roots) {
-    const stack = [r]
-    while (stack.length) {
-      const nd = stack.pop()!
-      if (nd.path === path) return (nd.folders ?? []).length > 0
-      stack.push(...(nd.folders ?? []))
+/** 站点配置里登记过的小类（含空目录；/site 已经按磁盘过滤掉残影） */
+function cfgSubs(code: ColumnCode): Array<{ path: string; name: string }> {
+  const col = siteStore.info.columns?.find((c) => c.code === code)
+  return (col?.subs ?? [])
+    .map((x) => ({
+      path: String(x.path || '').replace(/^\/+|\/+$/g, ''),
+      name: String(x.name || ''),
+    }))
+    .filter((x) => x.path)
+}
+
+const parentOf = (path: string): string => path.split('/').slice(0, -1).join('/')
+
+/**
+ * 「有下级」的路径集合：文档树里的 + 站点配置里的。
+ *
+ * 空目录不进 notes.roots（树只含带文章的目录），但它可能在 subs 登记过、
+ * 下面还挂着更小的空目录 —— 只看树的话连展开箭头都不给。
+ */
+const parentsWithChildren = computed(() => {
+  const set = new Set<string>()
+  for (const col of COLUMNS) {
+    for (const x of cfgSubs(col.code)) set.add(parentOf(x.path))
+    const root = notes.roots.find((r) => r.path === col.path)
+    const walkTree = (folders: any[]): void => {
+      for (const f of folders) {
+        if ((f.folders ?? []).length) set.add(f.path)
+        walkTree(f.folders ?? [])
+      }
     }
+    if (root) walkTree(root.folders ?? [])
   }
-  return false
+  return set
+})
+
+function hasChildren(path: string): boolean {
+  return parentsWithChildren.value.has(path)
 }
 
 function toggleFold(path: string): void {
@@ -77,12 +104,7 @@ function countDocs(node: { docs: unknown[]; folders: any[] }): number {
   return node.docs.length + node.folders.reduce((s: number, f: any) => s + countDocs(f), 0)
 }
 
-/** site.yaml 的 subs[].name 优先（「认知篇」优先于 how-to-live-better-1），同 Web 左栏 */
-const displayName = (code: ColumnCode, path: string, fallback: string): string => {
-  const siteCol = siteStore.info.columns?.find((c) => c.code === code)
-  const hit = siteCol?.subs?.find((x) => x.path === path)
-  return (hit?.name || '').trim() || fallback
-}
+/* 显示名逻辑已收进 rows 的 cfgName（同一个 Map 既要排序又要取名，再走一遍 find 是浪费） */
 
 interface Row {
   key: string
@@ -101,7 +123,6 @@ interface Row {
 const rows = computed<Row[]>(() =>
   COLUMNS.flatMap((col) => {
     const root = notes.roots.find((r) => r.path === col.path)
-    if (!root) return []
     const main = isDark.value ? col.mainDark : col.main
     const ink = isDark.value ? col.inkDark : col.ink
     const colRow: Row = {
@@ -112,29 +133,50 @@ const rows = computed<Row[]>(() =>
       desc: col.brief,
       path: '',
       depth: 0,
-      count: countDocs(root),
+      // 栏目行始终显示（五个栏目是固定的）；没有文章时计数就是 0
+      count: root ? countDocs(root) : 0,
       main,
       ink,
     }
-    // 递归摊平，深度决定缩进
-    const walk = (folders: any[], depth: number): Row[] =>
-      folders.flatMap((f) => [
-        {
-          key: f.path,
+
+    const cfg = cfgSubs(col.code)
+    const cfgName = new Map(cfg.map((x) => [x.path, x.name]))
+
+    /**
+     * 逐层展开：**顺序以站点配置为准**，树里有但配置没登记的追加在后面。
+     *
+     * 关键点：空目录不进文档树。后台建完空目录若只看树，侧栏一点变化都没有，
+     * 用户会以为没建成功 —— subs 里有登记，所以把「配置有、树里没有」的
+     * 补成 count=0 的行（截图里那种「建了 2 个目录但栏目里不显示」就是缺这一步）。
+     */
+    const walk = (parent: string, treeFolders: any[], depth: number): Row[] => {
+      const byPath = new Map(treeFolders.map((f) => [f.path, f]))
+      const cfgKids = cfg.filter((x) => parentOf(x.path) === parent).map((x) => x.path)
+      const extra = treeFolders
+        .map((f: any) => String(f.path))
+        .filter((p: string) => !cfgKids.includes(p))
+      return [...cfgKids, ...extra].flatMap((p: string) => {
+        const node = byPath.get(p)
+        const name = (cfgName.get(p) || '').trim() || p.split('/').pop() || p
+        const row: Row = {
+          key: p,
           code: col.code,
           isCol: false,
-          name: displayName(col.code, f.path, f.name),
+          name,
           desc: '',
-          path: f.path,
+          path: p,
           depth,
-          count: countDocs(f),
+          count: node ? countDocs(node) : 0,
           main,
           ink,
-        },
+        }
         // 被收起的目录不再下钻
-        ...(collapsed.value.has(f.path) ? [] : walk(f.folders ?? [], depth + 1)),
-      ])
-    return [colRow, ...walk(root.folders, 1)]
+        if (collapsed.value.has(p)) return [row]
+        return [row, ...walk(p, node?.folders ?? [], depth + 1)]
+      })
+    }
+
+    return [colRow, ...walk(col.path, root?.folders ?? [], 1)]
   }),
 )
 
