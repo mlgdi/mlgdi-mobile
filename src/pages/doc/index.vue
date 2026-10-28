@@ -19,18 +19,11 @@
         <GIcon name="send" :size="32" />
         <text class="menu-t">分享</text>
       </view>
-      <!-- 归档与移动互斥：草稿在收集箱里叫「归档」（还要连带收编碎片），
-           已经在正式目录里的就是纯物理移动。同一时刻只出现一个，
-           两个都摆出来会让人猜「到底该点哪个」 -->
-      <view v-if="canEdit && doc && inInbox" class="menu-item" @click="openDirSheet('archive')">
-        <GIcon name="folder" :size="32" />
-        <text class="menu-t">归档到…</text>
-      </view>
-      <view
-        v-else-if="canEdit && doc"
-        class="menu-item"
-        @click="openDirSheet('move')"
-      >
+      <!-- 「归档」和「移动」对用户是同一件事：换个归属地。
+           区别只在服务端动作不同（收集箱里的草稿要走 archive，连带收编碎片），
+           那是实现细节，不该让用户在菜单里做选择。统一成「移动到…」，
+           由 inInbox 决定底下调哪个接口。 -->
+      <view v-if="canEdit && doc" class="menu-item" @click="openDirSheet">
         <GIcon name="folder" :size="32" />
         <text class="menu-t">移动到…</text>
       </view>
@@ -106,10 +99,10 @@
       <view class="a-meta">
         <text
           v-if="col"
-          class="a-col"
+          class="a-col a-col-scope"
           :style="{ color: colInk, background: tint(colMain, 0.14) }"
         >
-          {{ col.code }} · {{ col.name }}
+          {{ col.code }} · {{ col.name }}{{ subText ? ` · ${subText}` : '' }}
         </text>
         <text class="a-dim">{{ formatDate(doc.updated_at) }}</text>
         <text class="a-dot">·</text>
@@ -224,7 +217,7 @@
     <!-- 归档 / 移动：底部抽屉选目标目录，选完立刻执行 -->
     <GDirSheet
       :open="dirSheet"
-      :title="dirMode === 'archive' ? '归档到' : '移动到'"
+      title="移动到"
       :current="currentDir"
       :busy="dirBusy"
       @close="dirSheet = false"
@@ -254,6 +247,8 @@ import { columnByPath, tint } from '../../shared/config/columns'
 import { resolvedTheme, setThemeMode } from '../../shared/theme'
 import { capabilities } from '../../shared/capabilities'
 import { useAuthStore } from '../../shared/store/auth'
+import { useSiteStore } from '../../shared/store/site'
+import { subLevels } from '../../shared/utils/scope'
 import { getBaseUrl } from '../../shared/config/server'
 
 /** 编辑/删除/归档：既要有平台能力，也要真的登录了（游客能读不能写） */
@@ -261,6 +256,7 @@ const canEdit = computed(() => capabilities.canEdit && auth.logged)
 
 const notes = useNotesStore()
 const auth = useAuthStore()
+const siteStore = useSiteStore()
 const doc = ref<DocDetail | null>(null)
 const html = ref('')
 const toc = ref<TocItem[]>([])
@@ -312,14 +308,21 @@ let offsets: number[] = []
 
 const col = computed(() => (doc.value ? columnByPath(doc.value.path) : undefined))
 
-/* ---------------- 归档 / 移动 ----------------
-   归档只对收集箱里的草稿开放（服务端也这么校验：`inbox.archive_not_draft`），
-   其余目录走纯物理移动。两者共用同一个目录抽屉，只换标题与落点接口。 */
+/* ---------------- 移动 ----------------
+   界面上只有「移动」一个动作。服务端其实有两个接口：收集箱里的草稿要走
+   `/inbox/archive`（连带把它收编的碎片标记归档），其它目录走 `/notes/move`
+   的纯文件移动。这个区别对用户没有意义，所以由 inInbox 自动选，
+   菜单和抽屉都只出现「移动到…」。 */
 const dirSheet = ref(false)
-const dirMode = ref<'move' | 'archive'>('move')
 const dirBusy = ref(false)
 
 const inInbox = computed(() => (doc.value?.path || '').startsWith('00_Inbox/'))
+/** 小类层级显示名（`AI / 检索`），文章页归属标签用 */
+const subText = computed(() =>
+  subLevels(doc.value?.path || '', siteStore.subAliases)
+    .map((l) => l.label)
+    .join(' / '),
+)
 /** 文档所在目录（去掉文件名），抽屉里标成「当前」且点不动 */
 const currentDir = computed(() => {
   const p = doc.value?.path || ''
@@ -327,9 +330,8 @@ const currentDir = computed(() => {
   return i > 0 ? p.slice(0, i) : p
 })
 
-function openDirSheet(mode: 'move' | 'archive'): void {
+function openDirSheet(): void {
   if (!doc.value) return
-  dirMode.value = mode
   menuOpen.value = false
   dirSheet.value = true
 }
@@ -347,10 +349,11 @@ async function onPickDir(path: string): Promise<void> {
   if (!d || dirBusy.value) return
   dirBusy.value = true
   try {
-    if (dirMode.value === 'archive') {
+    if (inInbox.value) {
+      // 收集箱里的草稿：走 archive，顺带把它收编的碎片标记归档
       const res = await archiveDoc(d.id, path)
       const extra = res.items_archived ? `，${res.items_archived} 条碎片一并归档` : ''
-      uni.showToast({ title: `已归档到 ${dirName(path)}${extra}`, icon: 'none' })
+      uni.showToast({ title: `已移动到 ${dirName(path)}${extra}`, icon: 'none' })
     } else {
       // 移动是文件级操作：目标要带文件名，后端不替我们拼
       const name = (d.path || '').split('/').pop() || ''
@@ -935,6 +938,15 @@ onUnload(() => {
   font-weight: 600;
   padding: 4rpx 14rpx;
   border-radius: var(--r-full);
+}
+
+/* 带上小类之后标签会变长（`M · 观悟 · AI / 检索`）：限宽并省略，
+   不把日期和字数挤到下一行 */
+.a-col-scope {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .a-dim {

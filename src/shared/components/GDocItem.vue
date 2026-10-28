@@ -8,6 +8,8 @@ import { computed } from 'vue'
 import type { FlatDoc } from '../store/notes'
 import { columnByPath, type Column } from '../config/columns'
 import { assetUrl } from '../utils/asset'
+import { useSiteStore } from '../store/site'
+import { subLevels } from '../utils/scope'
 
 const props = withDefaults(
   defineProps<{
@@ -28,10 +30,20 @@ const col = computed<Column | undefined>(() => columnByPath(props.doc.path))
  * 接口给的 folderLabel 以原始目录名开头（`02_Booklets`），且用 ` · ` 分层：
  * 先剥掉栏目根，再剥掉用户已选中的子类（否则在子类视图里每行都重复同一层）。
  */
-const relFolder = computed(() => {
-  const parts = (props.doc.folderLabel || '').split(' · ').filter(Boolean).slice(1)
-  if (props.strip && parts[0] === props.strip) parts.shift()
-  return parts.join(' / ')
+const siteStore = useSiteStore()
+
+/**
+ * 小类层级（已换成显示名）。直接从 path 算，不用 folderLabel ——
+ * folderLabel 是树里的原始目录名，拿不到 site.yaml 登记的小类显示名。
+ * 用户已选中的那一层要剥掉，否则在子类视图里每行都重复同一层。
+ */
+const levels = computed(() => {
+  const list = subLevels(props.doc.path, siteStore.subAliases)
+  const first = list[0]
+  if (props.strip && first && (first.key === props.strip || first.label === props.strip)) {
+    return list.slice(1)
+  }
+  return list
 })
 
 const dateText = computed(() => {
@@ -44,9 +56,14 @@ const dateText = computed(() => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 })
 
+/**
+ * 归属标签：跨栏目场景显示「大类 · 小类」，栏目内只显示小类（大类由 Tab 表达，
+ * 再写一遍是噪音）。多级小类之间用 ` / `。
+ */
 const leadLabel = computed(() => {
-  if (props.showColumn) return col.value?.name || props.doc.rootName
-  return relFolder.value
+  const sub = levels.value.map((l) => l.label).join(' / ')
+  const head = props.showColumn ? col.value?.name || props.doc.rootName : ''
+  return [head, sub].filter(Boolean).join(' · ')
 })
 
 /** 封面缩略图地址。没有封面就不渲染占位——空格子比没有更难看。 */

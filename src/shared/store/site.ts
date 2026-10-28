@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { currentIdentity } from '../auth/identity'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { site as apiSite, type SiteInfo } from '../api/site'
 
 /**
@@ -16,6 +16,20 @@ export const useSiteStore = defineStore('site', () => {
 
   /** 同上：站点概览里的 public_documents 与登录策略都跟身份有关 */
   let loadedAs = ''
+
+  /**
+   * 小类路径 → 显示名。site.yaml 里登记过的用登记名，没登记的由调用方回退成目录名。
+   * 磁盘目录始终是归属权威，这张表只管「叫什么」。
+   */
+  const subAliases = computed<Record<string, string>>(() => {
+    const map: Record<string, string> = {}
+    for (const col of info.value.columns || []) {
+      for (const sub of col.subs || []) {
+        if (sub.path && sub.name) map[sub.path] = sub.name
+      }
+    }
+    return map
+  })
 
   async function load(force = false): Promise<void> {
     if (loading.value) return
@@ -34,5 +48,5 @@ export const useSiteStore = defineStore('site', () => {
     }
   }
 
-  return { info, loading, load }
+  return { info, loading, load, subAliases }
 })
