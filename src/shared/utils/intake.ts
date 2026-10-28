@@ -64,6 +64,27 @@ function askCapture(text: string, from: string): void {
 }
 
 /**
+ * 分享扩展走剪贴板通道时，会把**文件名放在第一行**（`书房改造2.0.md`）。
+ *
+ * 认这个标记有两个用处：
+ * 1) 判「这是分享进来的文档，不是随手复制的一段文字」，从而不受 looksUseful
+ *    的 2000 字上限约束 —— 分享的 md 常常几千字，被当成「整页复制」丢掉，
+ *    表现就是「分享完切回来什么都没发生」；
+ * 2) 弹窗文案换成「收下这条分享？」，与外部 scheme 那条路径保持一致。
+ *
+ * 为什么只能靠首行文件名：侧载包没有 App Group 权限，扩展写不进共享文件，
+ * 也读不到 App 的凭据，剪贴板是唯一通道，而剪贴板本身不带类型信息。
+ */
+const SHARE_FILE_RE = /^([^\n]{1,120}\.(?:md|markdown|mkd|txt|text))[ \t]*\n([\s\S]+)$/i
+
+export function parseSharedFile(text: string): { name: string; body: string } | null {
+  const m = SHARE_FILE_RE.exec(text)
+  if (!m) return null
+  const body = m[2].trim()
+  return body.length >= 8 ? { name: m[1].trim(), body } : null
+}
+
+/**
  * 从后台切回前台：检测剪贴板。
  * 只在 App 端启用——H5 浏览器读剪贴板要么报错要么弹系统授权，得不偿失。
  */
@@ -81,7 +102,14 @@ export async function askClipboardIntake(): Promise<void> {
   if (!hasSession() || !clipAskEnabled()) return
   try {
     const text = (await readClipboard()).trim()
-    if (!text || text === lastClip || !looksUseful(text)) return
+    if (!text || text === lastClip) return
+    // 分享进来的文档优先：文案与长度判定都走分享那套
+    if (parseSharedFile(text)) {
+      lastClip = text
+      askCapture(text, 'share')
+      return
+    }
+    if (!looksUseful(text)) return
     lastClip = text
     askCapture(text, 'clip')
   } catch {

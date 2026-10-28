@@ -119,11 +119,76 @@ public final class ShareViewController: UIViewController {
         }
 
         if !text.isEmpty || !link.isEmpty {
-            savePayload(text: text, link: link, name: name)
+            let handedOff = savePayload(text: text, link: link, name: name)
             delivered = true
+            // handedOff == false 说明只剩剪贴板通道：内容已经在剪贴板里，
+            // 但用户必须自己切回 App 才会被问到，所以文案要写清楚这一步
+            show(
+                title: "已送到渡己",
+                detail: handedOff ? "切回 App 即可投递" : "内容已放进剪贴板，切回 App 会自动询问是否投递",
+                then: 1.5
+            )
+        } else {
+            show(
+                title: "没有可以投递的内容",
+                detail: "只支持文本与 Markdown 文件",
+                then: 1.8
+            )
         }
+    }
 
-        extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+    // MARK: - 反馈卡片
+    /*
+     * 为什么要在扩展里画一张卡：iOS 不允许分享扩展拉起宿主 App
+     * （openURL 对 share-services 无效），用户点完「渡己」如果什么反馈都没有，
+     * 看起来就像功能坏了。这里给一句明确结果 + 下一步该做什么，1.5 秒自动关。
+     */
+    private func show(title: String, detail: String, then seconds: TimeInterval) {
+        view.backgroundColor = UIColor(white: 0, alpha: 0.32)
+
+        let card = UIView()
+        card.backgroundColor = .secondarySystemBackground
+        card.layer.cornerRadius = 16
+        card.translatesAutoresizingMaskIntoConstraints = false
+
+        let titleLabel = UILabel()
+        titleLabel.text = title
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.textColor = .label
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 1
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let detailLabel = UILabel()
+        detailLabel.text = detail
+        detailLabel.font = .systemFont(ofSize: 13)
+        detailLabel.textColor = .secondaryLabel
+        detailLabel.textAlignment = .center
+        detailLabel.numberOfLines = 2
+        detailLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        card.addSubview(titleLabel)
+        card.addSubview(detailLabel)
+        view.addSubview(card)
+
+        NSLayoutConstraint.activate([
+            card.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            card.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            card.widthAnchor.constraint(equalToConstant: 260),
+
+            titleLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 20),
+            titleLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 18),
+            titleLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -18),
+
+            detailLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
+            detailLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 18),
+            detailLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -18),
+            detailLabel.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -20),
+        ])
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
+            self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
+        }
     }
 
     /// 在注册类型里找第一个符合目标 UTI 的（file-url / url / text）
@@ -175,7 +240,8 @@ public final class ShareViewController: UIViewController {
 
     // MARK: - 交接
 
-    private func savePayload(text: String, link: String, name: String) {
+    @discardableResult
+    private func savePayload(text: String, link: String, name: String) -> Bool {
         var payload: [String: Any] = [
             "text": text,
             "url": link,
@@ -220,5 +286,6 @@ public final class ShareViewController: UIViewController {
             let body = parts.joined(separator: "\n")
             if !body.isEmpty { UIPasteboard.general.string = body }
         }
+        return handedOff
     }
 }
