@@ -4,56 +4,81 @@ import { initTheme, recomputeTheme } from './shared/theme'
 import { askClipboardIntake, handleExternalOpen } from './shared/utils/intake'
 
 /**
- * 顶部安全区 `--safe-top`：按平台的**真实情况**算，而不是照抄 `env()`。
+ * 顶部安全区 `--safe-top` = **顶部真正被系统遮挡的高度**，只算一次、只加一次。
  *
- * 为什么会出错：`env(safe-area-inset-top)` 在 App 的 WKWebView 里照样返回 59pt，
- * 但页面本身已经被 uni 让到状态栏下方了（`manifest` 没开 `statusbar.immersed`）。
- * 于是顶栏里 `height` 含一次、`padding-top` 又来一次，整整多出一格状态栏的空白。
+ * 这段代码翻过两次车，两个错误方向都踩过，所以规则写在最前面：
  *
- * 现在的判据：
- * - App 端先问 `plus.navigator.isImmersedStatusbar()`——**只有沉浸式**才需要自己
- *   让开状态栏，此时按机器的 `statusBarHeight` 垫；
- * - plus 还没就绪（极少见）时退化为看 `windowTop`：`0` 表示 webview 从屏幕顶端
- *   开始，按「可能被遮挡」保守处理；
- * - H5 完全不走这里：浏览器里页面从视口顶端开始，CSS 的 `env()` 才是权威。
+ * 1) 不许「判断要不要垫」。上一版用 `plus.navigator.isImmersedStatusbar()` 当开关，
+ *    可它是 Android 的概念（HTML5+ 文档原话：系统不支持沉浸式时同样返回 false），
+ *    而 uni-app 的 `statusbar.immersed` 本来只在 Android 生效 → iOS 上恒为 false
+ *    → pad 恒为 0 → 顶栏直接贴在状态栏底下，一点间距都没有。这就是「修完变没间距」。
+ *
+ * 2) 更早那版把 `env(safe-area-inset-top)` 同时写进 `height` 和 `padding-top`，
+ *    又没开 border-box → 两倍刘海高度 = 一大条空白。这是「间距太大」。
+ *
+ * 现在的做法：**同一个物理量，多个来源取最大值**，既不会漏垫，也不可能叠加。
+ * - `env(safe-area-inset-top)`：WebView 自己算的视口/安全区关系（探针读一次）。
+ *   App 里底部 TabBar 一直靠 `env(safe-area-inset-bottom)` 定位，说明这个 webview
+ *   是通到屏幕边缘的，env() 在 App 端同样有效，值也才是「被遮挡的高度」。
+ * - `statusBarHeight` / `safeAreaInsets.top`：机器报的状态栏高度。刘海机型
+ *   statusBarHeight(54) 比 safeAreaInsets.top(59) 小，真正压住内容的是 59。
  */
-function applySafeTop(): void {
-  // #ifdef APP-PLUS
-  let pad = 0
+function readEnvTop(): number {
   try {
-    const plusAny = (globalThis as any).plus
-    const nav = plusAny?.navigator
-    if (typeof nav?.isImmersedStatusbar === 'function') {
-      if (nav.isImmersedStatusbar() === true) {
-        pad = Number(uni.getSystemInfoSync().statusBarHeight) || 0
-      }
-    } else {
-      // 退化：拿不到沉浸式标记时，只有 windowTop===0 才认为页面是全屏的
-      const windowTop = Number((uni.getSystemInfoSync() as any).windowTop)
-      if (Number.isFinite(windowTop) && windowTop === 0) {
-        pad = Number(uni.getSystemInfoSync().statusBarHeight) || 0
-      }
-    }
+    const probe = document.createElement('div')
+    probe.style.cssText =
+      'position:fixed;top:0;left:0;width:0;height:0;visibility:hidden;' +
+      'pointer-events:none;padding-top:env(safe-area-inset-top,0px)'
+    document.body.appendChild(probe)
+    const v = parseFloat(getComputedStyle(probe).paddingTop) || 0
+    document.body.removeChild(probe)
+    return v
   } catch {
-    pad = 0
+    return 0
   }
+}
+
+function applySafeTop(): void {
+  let pad = readEnvTop()
+  // #ifdef APP-PLUS
   try {
-    document.documentElement.style.setProperty('--safe-top', `${pad}px`)
+    const info = uni.getSystemInfoSync() as any
+    pad = Math.max(
+      pad,
+      Number(info.statusBarHeight) || 0,
+      Number(info.safeAreaInsets?.top) || 0,
+    )
   } catch {
-    /* DOM 不可用时保持 CSS 里的 0 兜底 */
+    /* 拿不到系统信息就沿用 env() 的结果 */
   }
   // #endif
+  // 取整：小数会让 calc 里的高度出现 0.33px 的缝
+  pad = Math.round(pad)
+  try {
+    const root = document.documentElement
+    root.style.setProperty('--safe-top', `${pad}px`)
+    // 排查用：Safari 远程调试里能直接看到这次算出来多少
+    root.setAttribute('data-safe-top', String(pad))
+  } catch {
+    /* DOM 不可用时保持 CSS 里的 env() 兜底 */
+  }
 }
 
 onLaunch(() => {
   initTheme()
   applySafeTop()
+  // 转屏 / 分屏：状态栏与安全区都会变，重新量一次
+  try {
+    uni.onWindowResize(() => applySafeTop())
+  } catch {
+    /* 不支持的平台忽略 */
+  }
 })
 
 onShow(() => {
   // 从后台切回来时系统主题可能已变
   recomputeTheme()
-  // 分屏 / 转屏 / 窗口尺寸变化后 windowTop 会变，重算一次
+  // 从别的 App 切回来时状态栏可能刚变过（通话条、热点条），重算一次
   applySafeTop()
   // 别的 App 通过 mlgdi:// scheme 递进来的内容（热启动在这里，冷启动也走这里：
   // plus.runtime.arguments 冷热启动都保留）
@@ -133,14 +158,12 @@ page {
   --shadow-lg: 0 20rpx 60rpx rgba(0, 0, 0, 0.65);
 }
 
-/* 顶部安全区：App 端由 App.vue 的 applySafeTop() 写进 <html> 的行内变量
-   （按 windowTop 判断是不是沉浸式，不能照抄 env——env 会与已让开的状态栏重复）。
-   H5 端不写行内变量，用这里的 env 兜底。两者不会互相覆盖。 */
-/* #ifdef H5 */
+/* 顶部安全区：JS 跑起来之前（首帧）先用 env() 顶上，避免顶栏先在状态栏底下闪一下；
+   onLaunch 后由 applySafeTop() 写 <html> 行内变量覆盖——它取 env 与机器状态栏高度的
+   最大值，所以只会 ≥ 这里，不会把内容压回去。 */
 :root {
   --safe-top: env(safe-area-inset-top, 0px);
 }
-/* #endif */
 
 /* 圆角三级 + 胶囊（禁止再用 9/12/14 这类中间值） */
 .theme-light,

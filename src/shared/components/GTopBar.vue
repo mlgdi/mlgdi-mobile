@@ -58,9 +58,10 @@ const emit = defineEmits<{ (e: 'back'): void; (e: 'menu'): void }>()
   box-sizing: border-box;
   height: calc(var(--topbar-h) + var(--safe-top, 0px));
   padding: 0 32rpx;
-  /* 安全区由 App.vue 的 applySafeTop() 统一算：
-     App 端 webview 已经让开状态栏，这里就是 0；H5 端取 env()。
-     组件里不再直接写 env()——那会和已让开的状态栏重复计算。 */
+  /* 安全区由 App.vue 的 applySafeTop() 统一给：它量的是「顶部真被遮挡多少」
+     （env 与机器状态栏高度取最大），组件里只消费、不再自己算、也不再写 env()。
+     height 与 padding-top 出现的是同一个变量——border-box 下是同一块面积，
+     不会像旧版那样一加加两次。 */
   padding-top: var(--safe-top, 0px);
   background-color: transparent;
   border-bottom: 1rpx solid transparent;
