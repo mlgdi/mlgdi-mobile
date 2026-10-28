@@ -219,7 +219,7 @@
       @pick="onPickNewDir"
     />
 
-    <GTabBar :active="activeTab" :disabled="!loggedIn" @select="switchColumn" />
+    <GTabBar :active="activeTab" @select="switchColumn" />
 
     <!-- 侧栏：Web 左栏移植，完整目录树 -->
     <GSideNav
@@ -241,6 +241,7 @@ import { useSiteStore } from '../../shared/store/site'
 import { createDoc } from '../../shared/api/notes'
 import { usePagedList } from '../../shared/composables/usePagedList'
 import { hasSession } from '../../shared/auth/session'
+import { requireLogin } from '../../shared/utils/guard'
 import { resolvedTheme } from '../../shared/theme'
 import { capture, items as apiInboxItems } from '../../shared/api/inbox'
 import { COLUMNS, columnByCode, columnByPath, tint } from '../../shared/config/columns'
@@ -265,7 +266,8 @@ const activeSub = ref('')
 /** 侧栏抽屉（Web 左栏移植）：完整目录树从这里进 */
 const sideOpen = ref(false)
 
-const loggedIn = computed(() => hasSession())
+/** 登录态：用 store 的响应式 ref。hasSession() 直接读本地存储，computed 永远不重算 */
+const loggedIn = computed(() => auth.logged)
 
 const isHome = computed(() => activeTab.value === 'HOME')
 const activeCol = computed(() => (isHome.value ? null : columnByCode(activeTab.value) || COLUMNS[0]))
@@ -628,6 +630,7 @@ const autoFocus = ref(false)
 let focusTimer: ReturnType<typeof setTimeout> | null = null
 
 function openNew(): void {
+  if (!requireLogin('登录后才能新建文档')) return
   // 连点不重入：重复 open 会把入场动画与聚焦再排一遍
   if (newOpen.value) return
   newDir.value = activeCol.value?.path || '00_Inbox'
@@ -693,6 +696,7 @@ onUnload(() => {
 })
 
 function toInbox(): void {
+  if (!requireLogin('碎片箱是你的私人收件箱')) return
   uni.navigateTo({ url: '/pages/inbox/index' })
 }
 
@@ -722,18 +726,37 @@ onPageScroll((e) => {
   }
 })
 
-onShow(() => {
-  // 库页是应用入口页（pages.json 第一项），未登录必须在这里挡一次，
-  // 否则会先渲染空列表再去打接口，出现「request:fail」的误导性报错
-  if (!hasSession()) {
-    uni.reLaunch({ url: '/pages/login/index' })
-    return
+/**
+ * 站点是否要求登录才让进。
+ *
+ * 后端读接口本来就是游客可读（get_viewer + 可见性过滤），站点还能用
+ * `guest_mode` 关掉游客浏览。移动端以前无条件 reLaunch 到登录页，比后端更严，
+ * 于是「只想看看」的人根本进不来。现在照后端策略走：只有站点主明确
+ * 关了 guest_mode，才强制登录。
+ *
+ * 策略没拿到（首屏还没回来）时按「可游客浏览」处理——后端默认就是 guest_mode=true，
+ * 宁可让游客先看到内容，也不要为了一个错误把入口堵死。
+ */
+async function enforceLoginPolicy(): Promise<void> {
+  if (hasSession()) return
+  try {
+    await siteStore.load()
+  } catch {
+    /* 拿不到策略就按游客可读处理 */
   }
+  if (siteStore.info.login_required) {
+    uni.reLaunch({ url: '/pages/login/index' })
+  }
+}
+
+onShow(() => {
   const saved = uni.getStorageSync('garden.column')
   if (saved === 'HOME' || (saved && columnByCode(saved))) activeTab.value = saved as TabCode
+  // 身份切换（游客 ↔ 登录、切号）由 store 内部识别并强制重拉，这里不用传 force
   notes.load()
   void siteStore.load()
   void loadPending()
+  void enforceLoginPolicy()
 })
 
 onReachBottom(() => {

@@ -138,6 +138,7 @@ import { computed, ref } from 'vue'
 import GTopBar from '../../shared/components/GTopBar.vue'
 import GIcon from '../../shared/components/GIcon.vue'
 import { onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
+import { requireLogin } from '../../shared/utils/guard'
 import {
   capture,
   dispatch,
@@ -428,6 +429,11 @@ onPullDownRefresh(async () => {
 })
 
 onShow(() => {
+  // 碎片箱是私有数据（/inbox/items 未登录直接 401），游客进来只会有报错
+  if (!requireLogin('碎片箱是你的私人收件箱')) {
+    setTimeout(() => uni.navigateBack(), 400)
+    return
+  }
   load()
 })
 </script>

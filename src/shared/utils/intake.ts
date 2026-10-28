@@ -13,6 +13,7 @@
 import { capture } from '../api/inbox'
 import { hasSession } from '../auth/session'
 import { readClipboard } from './file'
+import { requireLogin } from './guard'
 
 /** 上一次问过的内容：同一段内容只在切换回来时问一次，不反复弹 */
 let lastClip = ''
@@ -131,7 +132,13 @@ export function handleExternalOpen(): void {
   const args: string = String(plusAny?.runtime?.arguments || '')
   if (!args.startsWith('mlgdi://')) return
   const text = parseSchemePayload(args)
-  if (text) askCapture(text, 'share')
+  if (!text) return
+  // 游客收不了（投递要写权限）：直接引导登录，别让人走到 401 才明白
+  if (!hasSession()) {
+    requireLogin('收下这条分享需要登录')
+    return
+  }
+  askCapture(text, 'share')
   // #endif
 }
 

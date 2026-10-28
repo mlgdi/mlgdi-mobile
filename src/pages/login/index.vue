@@ -57,11 +57,16 @@ const baseUrl = ref(getBaseUrl())
 
 const canSubmit = computed(() => Boolean(username.value.trim() && password.value))
 
+/** 登录成功后回到来的地方：从设置/文档页进来就退回去，冷启动才落库页 */
+function leaveLogin(): void {
+  const pages = getCurrentPages()
+  if (pages.length > 1) uni.navigateBack()
+  else uni.reLaunch({ url: '/pages/library/index' })
+}
+
 onShow(() => {
   baseUrl.value = getBaseUrl()
-  if (hasSession()) {
-    uni.reLaunch({ url: '/pages/library/index' })
-  }
+  if (hasSession()) leaveLogin()
 })
 
 function toServer(): void {
@@ -72,7 +77,8 @@ async function submit(): Promise<void> {
   if (!canSubmit.value || auth.logging) return
   try {
     await auth.login(username.value, password.value)
-    uni.reLaunch({ url: '/pages/library/index' })
+    uni.showToast({ title: '已登录', icon: 'none' })
+    setTimeout(leaveLogin, 300)
   } catch (err: any) {
     // 后端 detail.reason 更具体（例如「设备标识已被其他账号占用」），优先展示它
     uni.showToast({ title: err?.reason || err?.message || '登录失败', icon: 'none', duration: 2600 })

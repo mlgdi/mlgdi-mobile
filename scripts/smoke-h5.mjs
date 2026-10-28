@@ -124,11 +124,27 @@ page.on('console', (msg) => {
 page.on('pageerror', (err) => errors.push(String(err)))
 
 try {
-  // ---- 1. 登录页 + 服务器切换 ----
+  // ---- 0. 游客可浏览（不登录也要能看到内容） ----
+  // 先指到被测服务器再断言，避免拿线上站点的数据当基准
   await page.goto(APP, { waitUntil: 'networkidle' })
+  await page.evaluate((api) => window.uni.setStorageSync('garden.server', api), API)
+  await page.evaluate(() => {
+    const keys = []
+    for (let i = 0; i < localStorage.length; i += 1) keys.push(localStorage.key(i))
+    keys.filter((k) => k && k.startsWith('garden.auth')).forEach((k) => localStorage.removeItem(k))
+  })
+  await page.goto(APP, { waitUntil: 'networkidle' })
+  await page.waitForTimeout(2500)
+  const guestDocs = await page.locator('.doc').count()
+  log('游客可直接浏览', guestDocs > 0, `${guestDocs} 篇`)
+  await shot(page, '00-guest')
+
+  // ---- 1. 登录页 + 服务器切换 ----
+  // 游览入口不再强制登录，登录页得自己进
+  await page.goto(`${APP}/#/pages/login/index`, { waitUntil: 'networkidle' })
   await page.waitForTimeout(1200)
   await shot(page, '01-login')
-  log('登录页渲染', await page.locator('text=渡己').first().isVisible())
+  log('登录页渲染', await page.locator('.form .btn').first().isVisible())
 
   await page.locator('text=服务器').first().click()
   await page.waitForTimeout(800)
@@ -142,13 +158,12 @@ try {
   log('服务器连通性测试', await page.locator('text=连接正常').first().isVisible())
   await shot(page, '02-server')
 
-  // 精确匹配：说明文字里也含「保存」二字
-  await page.getByText('保存', { exact: true }).first().click()
-  await page.waitForTimeout(600)
-  await confirmModal(page)
-  await page.waitForTimeout(1200)
+  // 地址在步骤 0 已经写对，这一步只验完连通性就回登录页；
+  // 不再点保存——地址未变时不会弹二次确认，流程不稳定
+  await page.goto(`${APP}/#/pages/login/index`, { waitUntil: 'networkidle' })
+  await page.waitForTimeout(1000)
   // showModal 关闭后节点仍在 DOM 里（隐藏），文案含「登录」，所以用表单按钮定位
-  log('保存后回到登录页', await page.locator('.form .btn').first().isVisible())
+  log('回到登录页', await page.locator('.form .btn').first().isVisible())
 
   // ---- 2. 设备绑定登录 ----
   const inputs = page.locator('uni-input input, input')
@@ -157,7 +172,11 @@ try {
   await page.waitForTimeout(200)
   await page.locator('.form .btn').first().click()
   await page.waitForTimeout(2500)
-  log('设备绑定登录', await page.locator('text=渡己').first().isVisible())
+  // 登录成功后 leaveLogin() 会退回「来源页」（这里是服务器页），
+  // 所以显式回库页再断言，别依赖导航栈
+  await page.goto(`${APP}/#/`, { waitUntil: 'networkidle' })
+  await page.waitForTimeout(2200)
+  log('设备绑定登录', await page.locator('.gtab').first().isVisible())
   await shot(page, '03-library')
 
   // ---- 3. 阅读 ----

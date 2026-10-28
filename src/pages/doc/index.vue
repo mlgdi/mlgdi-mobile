@@ -253,11 +253,14 @@ import { useNotesStore } from '../../shared/store/notes'
 import { columnByPath, tint } from '../../shared/config/columns'
 import { resolvedTheme, setThemeMode } from '../../shared/theme'
 import { capabilities } from '../../shared/capabilities'
+import { useAuthStore } from '../../shared/store/auth'
 import { getBaseUrl } from '../../shared/config/server'
 
-const canEdit = capabilities.canEdit
+/** 编辑/删除/归档：既要有平台能力，也要真的登录了（游客能读不能写） */
+const canEdit = computed(() => capabilities.canEdit && auth.logged)
 
 const notes = useNotesStore()
+const auth = useAuthStore()
 const doc = ref<DocDetail | null>(null)
 const html = ref('')
 const toc = ref<TocItem[]>([])

@@ -382,6 +382,7 @@ import { computed, nextTick, ref } from 'vue'
 import GTopBar from '../../shared/components/GTopBar.vue'
 import GIcon from '../../shared/components/GIcon.vue'
 import { onBackPress, onLoad } from '@dcloudio/uni-app'
+import { requireLogin } from '../../shared/utils/guard'
 import {
   doc as apiDoc,
   patchMeta,
@@ -1380,6 +1381,11 @@ function onFabTap(): void {
 }
 
 onLoad((options: any) => {
+  // 游客只能读：编辑器直接退回，别让人写一半才发现 401
+  if (!requireLogin('编辑文档需要登录')) {
+    setTimeout(() => uni.navigateBack(), 400)
+    return
+  }
   docId.value = String((options && options.id) || '')
   loadFabPos()
   if (!docId.value) {

@@ -8,6 +8,18 @@
 
     <!-- ============ 一级：菜单 ============ -->
     <template v-if="panel === 'root'">
+      <view v-if="!auth.logged" class="section">
+        <view class="card">
+          <view class="cell" @click="toLogin">
+            <view class="cell-main">
+              <text class="cell-title">登录</text>
+              <text class="cell-sub muted">编辑与投递需要登录</text>
+            </view>
+            <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
+          </view>
+        </view>
+      </view>
+
       <view class="section">
         <view class="card">
           <view class="cell" @click="openPanel('general')">
@@ -64,7 +76,8 @@
         </view>
       </view>
 
-      <view class="section">
+      <!-- 游客没有账号可管，顶部已经有「登录」入口，这里整行隐掉 -->
+      <view v-if="auth.logged" class="section">
         <view class="card">
           <view class="cell" @click="openPanel('account')">
             <view class="cell-main">
@@ -418,7 +431,19 @@
 
     <!-- ============ 二级：账号与设备 ============ -->
     <template v-else-if="panel === 'account'">
-      <view class="section">
+      <view v-if="!auth.logged" class="section">
+        <view class="card">
+          <view class="cell" @click="toLogin">
+            <view class="cell-main">
+              <text class="cell-title">登录</text>
+              <text class="cell-sub muted">当前是游客，只能浏览公开内容</text>
+            </view>
+            <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
+          </view>
+        </view>
+      </view>
+
+      <view v-if="auth.logged" class="section">
         <view class="card">
           <view class="cell">
             <view class="cell-main">
@@ -433,7 +458,7 @@
         </view>
       </view>
 
-      <view class="section">
+      <view v-if="auth.logged" class="section">
         <view class="row section-head">
           <text class="section-label muted">已登记设备</text>
           <text class="section-label muted">{{ devices.length }}</text>
@@ -1385,13 +1410,18 @@ function logout(): void {
   })
 }
 
+function toLogin(): void {
+  uni.navigateTo({ url: '/pages/login/index' })
+}
+
 function toServer(): void {
   uni.navigateTo({ url: '/pages/server/index' })
 }
 
 onShow(() => {
   baseUrl.value = getBaseUrl()
-  loadDevices()
+  // 游客没有设备列表可看（/auth/devices 需要登录）
+  if (auth.logged) loadDevices()
 })
 </script>
 

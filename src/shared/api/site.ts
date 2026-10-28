@@ -22,6 +22,14 @@ export interface SiteInfo {
   description?: string
   author?: string
   columns?: SiteColumn[]
+  /** 站点是否允许游客浏览（后端 garden.yaml 的 guest_mode，默认 true） */
+  guest_mode?: boolean
+  /** = !guest_mode。站点主关了游客模式时才需要强制登录 */
+  login_required?: boolean
+  /** 游客是否看不到草稿（更严格的公开口径） */
+  guest_hide_drafts?: boolean
+  /** 游客可见的文档数，首页概况用得上 */
+  public_documents?: number
 }
 
 export function site(): Promise<SiteInfo> {

@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { currentIdentity } from '../auth/identity'
 import { ref } from 'vue'
 import { site as apiSite, type SiteInfo } from '../api/site'
 
@@ -13,13 +14,19 @@ export const useSiteStore = defineStore('site', () => {
   const loadedAt = ref(0)
   const loading = ref(false)
 
+  /** 同上：站点概览里的 public_documents 与登录策略都跟身份有关 */
+  let loadedAs = ''
+
   async function load(force = false): Promise<void> {
     if (loading.value) return
+    const as = currentIdentity()
+    if (as !== loadedAs) force = true
     if (!force && loadedAt.value && Date.now() - loadedAt.value < 10 * 60 * 1000) return
     loading.value = true
     try {
       info.value = await apiSite()
       loadedAt.value = Date.now()
+      loadedAs = as
     } catch {
       /* 站点信息拿不到不影响浏览，静默降级到硬编码文案 */
     } finally {

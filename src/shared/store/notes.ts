@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { currentIdentity } from '../auth/identity'
 import { computed, ref } from 'vue'
 import { tree as apiTree, type DocBrief, type TreeNode } from '../api/notes'
 
@@ -46,8 +47,14 @@ export const useNotesStore = defineStore('notes', () => {
     return hit ? hit.id : null
   }
 
+  /** 这批数据是「谁」拉回来的：游客与登录用户看到的范围不同，缓存不能串 */
+  let loadedAs = ''
+
   async function load(force = false): Promise<void> {
     if (loading.value) return
+    // 身份变了必须重拉：游客只有公开内容，登录后是全量（切号同理）
+    const as = currentIdentity()
+    if (as !== loadedAs) force = true
     // 5 分钟内不重复拉：列表是入口页，频繁进出不该反复请求
     if (!force && loadedAt.value && Date.now() - loadedAt.value < 5 * 60 * 1000) return
     loading.value = true
@@ -56,6 +63,7 @@ export const useNotesStore = defineStore('notes', () => {
       const res = await apiTree()
       roots.value = res.roots || []
       loadedAt.value = Date.now()
+      loadedAs = as
     } catch (err: any) {
       error.value = err?.message || '加载失败'
       throw err
