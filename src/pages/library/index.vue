@@ -2,6 +2,7 @@
   <view
     :class="['page', `theme-${resolvedTheme}`]"
     @touchstart="onSwipeStart"
+    @touchmove="onSwipeMove"
     @touchend="onSwipeEnd"
   >
     <!-- 顶栏：品牌左对齐；右侧依次 搜索 / 碎片箱 / 设置 -->
@@ -22,7 +23,27 @@
       </GTopBar>
     </view>
 
-    <view class="body">
+    <!-- 下拉刷新：内容整体下移，指示器从顶栏下沿露出来。
+         不用原生刷新：导航栏是 navigationStyle: custom，webview 通到屏幕顶端，
+         系统指示器画在状态栏后面被盖住——手势有反应但什么都看不见。 -->
+    <view
+      :class="[
+        'body',
+        {
+          'is-pulling': pullPhase === 'pull' || pullPhase === 'ready',
+          'slide-right': feedDir === 'right',
+          'slide-left': feedDir === 'left',
+        },
+      ]"
+      :style="pullOffset ? { transform: `translate3d(0, ${pullOffset}px, 0)` } : undefined"
+    >
+      <view v-if="pullOffset > 0" class="pull" :style="{ opacity: Math.min(1, pullOffset / 26) }">
+        <view :class="['pull-ico', pullPhase === 'loading' ? 'is-spin' : '']">
+          <GIcon name="refresh" :size="26" :weight="2.2" />
+        </view>
+        <text class="pull-t">{{ pullText }}</text>
+      </view>
+
       <!-- 搜索条：点顶栏放大镜才出现，不占常驻空间 -->
       <view v-if="searching" class="search-row">
         <input
@@ -213,7 +234,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onPageScroll, onPullDownRefresh, onReachBottom, onShow, onUnload } from '@dcloudio/uni-app'
+import { onPageScroll, onReachBottom, onShow, onUnload } from '@dcloudio/uni-app'
 import { useNotesStore, type FlatDoc } from '../../shared/store/notes'
 import { useAuthStore } from '../../shared/store/auth'
 import { useSiteStore } from '../../shared/store/site'
@@ -400,13 +421,99 @@ const homeSub = computed(() =>
 const SWIPE_ORDER: TabCode[] = ['HOME', 'M', 'L', 'G', 'D', 'I']
 let swipeX = 0
 let swipeY = 0
+/** 页面纵向滚动位置：只有已经在顶端才可能触发下拉 */
+let pageTop = 0
+
+/* ---------------- 下拉刷新 ----------------
+   为什么自己画：导航栏是 navigationStyle: custom，webview 通到屏幕顶端，
+   系统刷新指示器画在状态栏区域内，被状态栏和我们自己的顶栏盖住 ——
+   手势其实生效，但屏幕上什么也看不到，看上去就是「没有下拉刷新」。
+   自己实现后，位置（顶栏下沿）、文案、回弹节奏都在我们手里。
+   阈值 58pt、最大 88pt、跟手阻尼 0.45。 */
+const PULL_TRIGGER = 58
+const PULL_MAX = 88
+const pullOffset = ref(0)
+const pullPhase = ref<'idle' | 'pull' | 'ready' | 'loading'>('idle')
+const pullText = computed(() => {
+  if (pullPhase.value === 'loading') return '正在刷新…'
+  return pullPhase.value === 'ready' ? '松手刷新' : '下拉刷新'
+})
+let pullStartY = 0
+let pullArmed = false
+
+/** 栏目切换时的滑动特效：新内容从滑入的方向进来 */
+const feedDir = ref<'' | 'left' | 'right'>('')
+let feedDirTimer: ReturnType<typeof setTimeout> | null = null
+
+function playSlide(dir: 1 | -1): void {
+  feedDir.value = dir > 0 ? 'right' : 'left'
+  if (feedDirTimer) clearTimeout(feedDirTimer)
+  feedDirTimer = setTimeout(() => {
+    feedDir.value = ''
+  }, 260)
+}
 
 function onSwipeStart(e: any): void {
-  swipeX = e?.touches?.[0]?.clientX ?? 0
-  swipeY = e?.touches?.[0]?.clientY ?? 0
+  const t = e?.touches?.[0]
+  if (!t) return
+  swipeX = t.clientX
+  swipeY = t.clientY
+  pullStartY = t.clientY
+  // 已有浮层、搜索态、或者在页面中段，都不接管下拉
+  pullArmed = !sideOpen.value && !searching.value && pageTop <= 0 && pullPhase.value === 'idle'
+}
+
+/** 跟手下拉：横向为主就交给栏目切换，纵向向下才拉指示器 */
+function onSwipeMove(e: any): void {
+  if (!pullArmed || pullPhase.value === 'loading') return
+  const t = e?.touches?.[0]
+  if (!t) return
+  const dy = t.clientY - pullStartY
+  if (Math.abs(t.clientX - swipeX) > Math.abs(dy)) return
+  if (dy <= 0) {
+    if (pullOffset.value !== 0) {
+      pullOffset.value = 0
+      pullPhase.value = 'idle'
+    }
+    return
+  }
+  const next = Math.min(PULL_MAX, dy * 0.45)
+  pullOffset.value = next
+  pullPhase.value = next >= PULL_TRIGGER ? 'ready' : 'pull'
+}
+
+async function refreshByPull(): Promise<void> {
+  pullPhase.value = 'loading'
+  pullOffset.value = 46
+  const started = Date.now()
+  try {
+    await Promise.all([notes.load(true), loadPending(), siteStore.load(true)])
+  } catch {
+    /* 失败也要把指示器收回去，不能卡在半空 */
+  } finally {
+    // 结束太快会「闪一下」，让「正在刷新」至少停留 400ms
+    const wait = Math.max(0, 400 - (Date.now() - started))
+    setTimeout(() => {
+      pullPhase.value = 'idle'
+      pullOffset.value = 0
+    }, wait)
+  }
 }
 
 function onSwipeEnd(e: any): void {
+  const wasPulling = pullArmed
+  pullArmed = false
+  if (wasPulling) {
+    if (pullPhase.value === 'ready') {
+      void refreshByPull()
+      return
+    }
+    if (pullPhase.value === 'pull') {
+      pullOffset.value = 0
+      pullPhase.value = 'idle'
+      return
+    }
+  }
   if (sideOpen.value || searching.value) return
   const t = e?.changedTouches?.[0]
   if (!t) return
@@ -425,6 +532,12 @@ function onSwipeEnd(e: any): void {
 }
 
 function switchColumn(code: TabCode): void {
+  const from = SWIPE_ORDER.indexOf(activeTab.value)
+  const to = SWIPE_ORDER.indexOf(code)
+  // 换栏目时把下拉状态归零，否则会停在下拉一半的位置
+  pullOffset.value = 0
+  pullPhase.value = 'idle'
+  if (from >= 0 && to >= 0 && from !== to) playSlide(to > from ? 1 : -1)
   activeTab.value = code
   activeSub.value = ''
   keyword.value = ''
@@ -600,7 +713,13 @@ async function loadPending(): Promise<void> {
 
 onPageScroll((e) => {
   const top = e.scrollTop
+  pageTop = top
   scrolled.value = top > 4
+  // 往下滚时把残留的下拉位移清掉（键盘/惯性滚动会打断手势，收不到 touchend）
+  if (top > 0 && pullOffset.value !== 0 && pullPhase.value !== 'loading') {
+    pullOffset.value = 0
+    pullPhase.value = 'idle'
+  }
 })
 
 onShow(() => {
@@ -621,11 +740,6 @@ onReachBottom(() => {
   loadMore()
 })
 
-onPullDownRefresh(async () => {
-  await notes.load(true)
-  await loadPending()
-  uni.stopPullDownRefresh()
-})
 </script>
 
 <style scoped>
@@ -638,6 +752,82 @@ onPullDownRefresh(async () => {
 
 .body {
   padding: 0 var(--page-gutter);
+  position: relative;
+  /* 下拉回弹 / 松手复位 */
+  transition: transform 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* 跟手拖动时不能有过渡，否则手指和内容不同步 */
+.body.is-pulling {
+  transition: none;
+}
+
+/* 下拉指示器：贴在内容上沿之外，内容下移多少就露出多少 */
+.pull {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -92rpx;
+  height: 92rpx;
+  padding-bottom: 12rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10rpx;
+  color: var(--faint);
+}
+
+.pull-ico {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pull-ico.is-spin {
+  animation: pullSpin 900ms linear infinite;
+}
+
+.pull-t {
+  font-size: 24rpx;
+  color: var(--faint);
+}
+
+@keyframes pullSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 栏目切换：新内容从滑入的方向进来，240ms 与 TabBar 胶囊同步 */
+.body.slide-right {
+  animation: feedFromRight 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.body.slide-left {
+  animation: feedFromLeft 240ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes feedFromRight {
+  from {
+    opacity: 0;
+    transform: translate3d(56rpx, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes feedFromLeft {
+  from {
+    opacity: 0;
+    transform: translate3d(-56rpx, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
 }
 
 .search-row {

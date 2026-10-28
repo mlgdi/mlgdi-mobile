@@ -11,8 +11,10 @@
       "style": {
         "navigationStyle": "custom",
         "navigationBarTitleText": "渡己",
-        "enablePullDownRefresh": true,
-        "backgroundTextStyle": "dark"
+        "enablePullDownRefresh": false,
+        "app-plus": {
+          "bounce": "none"
+        }
       }
     },
     {
