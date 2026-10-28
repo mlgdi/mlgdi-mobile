@@ -156,13 +156,13 @@
         @confirm="doCreate"
       />
 
-      <picker :range="dirLabels" :value="dirIndex" @change="onDirChange">
-        <view class="new-row">
-          <text class="new-label">目录</text>
-          <text class="new-value">{{ dirLabel(newDir) }}</text>
-          <GIcon name="chevron-right" :size="28" />
-        </view>
-      </picker>
+      <!-- 目录不再用原生 picker：它是一列滚轮，条目一多（几个栏目 × 各自小类）
+           翻起来又慢又看不到层级。改成树选择抽屉，与移动/归档共用同一个组件 -->
+      <view class="new-row" @click="dirSheet = true">
+        <text class="new-label">目录</text>
+        <text class="new-value">{{ dirLabel(newDir) }}</text>
+        <GIcon name="chevron-right" :size="28" />
+      </view>
 
       <view class="new-row">
         <text class="new-label">可见性</text>
@@ -180,6 +180,16 @@
         {{ creating ? '创建中…' : '创建并编辑' }}
       </view>
     </view>
+
+    <!-- 新建的目录选择：树形抽屉，允许选收集箱（草稿本来就该落这里） -->
+    <GDirSheet
+      :open="dirSheet"
+      title="新建到"
+      :current="newDir"
+      allow-inbox
+      @close="dirSheet = false"
+      @pick="onPickNewDir"
+    />
 
     <GTabBar :active="activeTab" :disabled="!loggedIn" @select="switchColumn" />
 
@@ -210,6 +220,7 @@ import GIcon from '../../shared/components/GIcon.vue'
 import GTopBar from '../../shared/components/GTopBar.vue'
 import GSideNav from '../../shared/components/GSideNav.vue'
 import GDocItem from '../../shared/components/GDocItem.vue'
+import GDirSheet from '../../shared/components/GDirSheet.vue'
 import GTabBar, { type TabCode } from '../../shared/components/GTabBar.vue'
 
 const notes = useNotesStore()
@@ -458,31 +469,24 @@ const newTitle = ref('')
 const creating = ref(false)
 const newDir = ref('00_Inbox')
 const newVisibility = ref<'private' | 'public'>('private')
+/** 目录树抽屉：候选由组件自己拉 /notes/dirs（含空目录），这里不再维护候选列表 */
+const dirSheet = ref(false)
 
-/** 目录候选：五个根 + 子目录（vault 最多两层） */
-const dirOptions = computed<string[]>(() => {
-  const out: string[] = []
-  const walk = (node: any, depth: number): void => {
-    if (depth > 2) return
-    out.push(node.path)
-    for (const f of node.folders || []) walk(f, depth + 1)
-  }
-  for (const r of notes.roots) walk(r, 1)
-  return out.length ? out : ['00_Inbox']
-})
-
-/** 目录的显示名：根目录换成栏目中文名，子目录保留原名 */
+/**
+ * 目录的显示名：栏目根换成中文名，小类保留原名。
+ *
+ * 旧实现这里是个 computed 候选列表，数据源是 `notes.roots`（**文档树**）——
+ * 文档树只含有文章的目录，于是「后台刚建、还没文章的小类」怎么都选不到。
+ * 现在候选统一交给 GDirSheet 从磁盘目录取。
+ */
 function dirLabel(path: string): string {
-  const root = path.split('/')[0]
-  const col = COLUMNS.find((c) => c.path === root)
+  const parts = path.split('/').filter(Boolean)
+  const col = COLUMNS.find((c) => c.path === parts[0])
   if (!col) return path
-  const rest = path.slice(root.length).replace(/^\//, '')
-  return rest ? `${col.name} · ${rest}` : col.name
+  // 多级小类用 ` / ` 连：与目录树里的完整路径写法一致
+  return parts.length > 1 ? `${col.name} · ${parts.slice(1).join(' / ')}` : col.name
 }
 
-/** picker 里也用友好名，否则用户面对一串 00_Inbox 得自己猜 */
-const dirLabels = computed(() => dirOptions.value.map(dirLabel))
-const dirIndex = computed(() => Math.max(0, dirOptions.value.indexOf(newDir.value)))
 const canCreate = computed(() => newTitle.value.trim().length > 0 && !creating.value)
 
 function openNew(): void {
@@ -491,8 +495,9 @@ function openNew(): void {
   newOpen.value = true
 }
 
-function onDirChange(e: any): void {
-  newDir.value = dirOptions.value[Number(e.detail.value)] || newDir.value
+function onPickNewDir(path: string): void {
+  newDir.value = path
+  dirSheet.value = false
 }
 
 async function doCreate(): Promise<void> {
