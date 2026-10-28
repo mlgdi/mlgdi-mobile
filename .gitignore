@@ -23,3 +23,7 @@ Thumbs.db
 .vscode/
 .idea/
 .ci-tmp/
+
+# Python 缓存（py_compile 校验注入脚本时会产生）
+__pycache__/
+*.pyc

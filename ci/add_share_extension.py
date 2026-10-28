@@ -322,6 +322,7 @@ def main() -> int:
 
         NSString *text = payload[@"text"] ?: @"";
         NSString *link = payload[@"url"] ?: @"";
+        NSString *name = payload[@"name"] ?: @"";
         // 读到就清掉，避免每次回前台重复弹
         [group removeObjectForKey:@"pendingShare"];
         [group synchronize];
@@ -329,8 +330,23 @@ def main() -> int:
         if (text.length == 0 && link.length == 0) return;
 
         NSString *body = text.length ? text : link;
-        NSString *enc = [body stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
-        NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"mlgdi://capture?text=%@", enc]];
+        /*
+         * 注意不能直接用 URLQueryAllowedCharacterSet：它把 & = # ? + % 都当合法，
+         * 正文里出现一个 & 就会把 text 参数截断、后面的内容错位成别的参数。
+         * 分享的是 Markdown 原文，这些都真会出现。
+         */
+        NSMutableCharacterSet *allowed = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
+        [allowed removeCharactersInString:@"?&=#+%;"];
+        NSString *enc = [body stringByAddingPercentEncodingWithAllowedCharacters:allowed];
+        if (!enc) return;
+        NSString *query = [NSString stringWithFormat:@"mlgdi://capture?text=%@", enc];
+        if (name.length) {
+            NSString *encName = [name stringByAddingPercentEncodingWithAllowedCharacters:allowed];
+            if (encName.length) {
+                query = [NSString stringWithFormat:@"mlgdi://capture?title=%@&text=%@", encName, enc];
+            }
+        }
+        NSURL *url = [NSURL URLWithString:query];
         if (!url) return;
         [PDRCore handleSysEvent:PDRCoreSysEventOpenURL withObject:url];
     } @catch (NSException *e) {

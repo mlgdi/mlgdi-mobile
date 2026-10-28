@@ -30,12 +30,21 @@
 		<dict>
 			<key>NSExtensionActivationRule</key>
 			<dict>
+				<!--
+				  为什么必须有 SupportsFileWithMaxCount：
+				  「文件」App 分享 .md 时给的是 public.file-url 附件，而
+				  SupportsText 只匹配纯文本内容项、SupportsWebURL 只匹配网页链接，
+				  两者都不认 file-url —— 扩展于是被系统过滤掉，分享面板里
+				  根本看不到「渡己」。这是「选了 md 却选不到 App」的直接原因。
+				  另外 iOS 并不认识 .md（net.daringfireball.markdown 在手机上
+				  多半是个 dynamic UTI），只认 public.file-url 才不会踩类型的坑。
+				-->
+				<key>NSExtensionActivationSupportsFileWithMaxCount</key>
+				<integer>1</integer>
 				<key>NSExtensionActivationSupportsText</key>
 				<true/>
 				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
 				<integer>1</integer>
-				<key>NSExtensionActivationSupportsImageWithMaxCount</key>
-				<integer>4</integer>
 			</dict>
 		</dict>
 	</dict>
