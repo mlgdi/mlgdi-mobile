@@ -57,14 +57,14 @@ const dateText = computed(() => {
 })
 
 /**
- * 归属标签：跨栏目场景显示「大类 · 小类」，栏目内只显示小类（大类由 Tab 表达，
- * 再写一遍是噪音）。多级小类之间用 ` / `。
+ * 归属两段：大类（栏目）与小类分开渲染 ——
+ * 大类用栏目色，小类弱化，这样一眼能分出层级；合成一段就只能同色。
+ * 多级小类之间用 ` / `。
  */
-const leadLabel = computed(() => {
-  const sub = levels.value.map((l) => l.label).join(' / ')
-  const head = props.showColumn ? col.value?.name || props.doc.rootName : ''
-  return [head, sub].filter(Boolean).join(' · ')
-})
+const catName = computed(() =>
+  props.showColumn ? col.value?.name || props.doc.rootName : '',
+)
+const subName = computed(() => levels.value.map((l) => l.label).join(' / '))
 
 /** 封面缩略图地址。没有封面就不渲染占位——空格子比没有更难看。 */
 const coverSrc = computed(() => assetUrl(props.doc.cover_image || ''))
@@ -79,12 +79,17 @@ const coverSrc = computed(() => assetUrl(props.doc.cover_image || ''))
       </view>
       <text v-if="doc.excerpt" class="doc-excerpt">{{ doc.excerpt }}</text>
       <view class="doc-meta">
-        <text v-if="leadLabel" :class="showColumn ? 'doc-cat' : 'doc-folder'">{{ leadLabel }}</text>
-        <text v-if="leadLabel" class="meta-dot">·</text>
-        <text>{{ dateText }}</text>
+        <!-- 归属单独成块并允许收缩：小类名字长了就省略它，
+             不能去挤日期和字数（之前长小类会把日期挤成两行） -->
+        <view v-if="catName || subName" class="meta-scope">
+          <text v-if="catName" class="doc-cat">{{ catName }}</text>
+          <text v-if="catName && subName" class="meta-dot">·</text>
+          <text v-if="subName" class="doc-folder">{{ subName }}</text>
+        </view>
+        <text class="meta-fixed">{{ dateText }}</text>
         <template v-if="doc.word_count">
           <text class="meta-dot">·</text>
-          <text>{{ doc.word_count }} 字</text>
+          <text class="meta-fixed">{{ doc.word_count }} 字</text>
         </template>
       </view>
     </view>
@@ -169,20 +174,46 @@ const coverSrc = computed(() => assetUrl(props.doc.cover_image || ''))
   margin-top: 14rpx;
   font-size: var(--fs-xs);
   color: var(--faint);
+  /* 整行不换行：元信息一换行，左右两栏就错位了 */
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.meta-scope {
+  /* 只让这一块让位：min-width 必须写 0，否则 flex 子项不肯缩 */
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6rpx;
+  overflow: hidden;
+}
+
+/* 日期与字数固定：位置稳定，扫读时不会跳 */
+.meta-fixed {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .doc-cat {
   color: var(--accent);
+  /* 大类优先保留：名字短，压它没有意义 */
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .doc-folder {
+  /* 小类让位给日期：太长就省略 */
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 380rpx;
 }
 
 .meta-dot {
   color: var(--line-strong);
+  /* 分隔点不能被压成 0 宽：挤的时候让文字省略，不是让点消失 */
+  flex: 0 0 auto;
 }
 </style>

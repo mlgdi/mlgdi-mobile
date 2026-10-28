@@ -139,7 +139,7 @@
           v-for="item in pagedItems"
           :key="item.id"
           :doc="item"
-          :show-column="searching"
+          show-column
           :strip="activeSubName"
           @open="open"
         />
