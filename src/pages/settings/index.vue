@@ -25,7 +25,7 @@
       </view>
 
       <view v-if="auth.isAdmin" class="section">
-        <text class="section-label muted">管理（改动直接写入站点配置）</text>
+        <text class="section-label muted">管理（改配置 · 重扫磁盘）</text>
         <view class="card">
           <view class="cell" @click="openPanel('site')">
             <view class="cell-main">
@@ -49,6 +49,18 @@
               <text class="cell-sub muted">服务器与密钥 · 工作流启停</text>
             </view>
             <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
+          </view>
+          <view class="divider" />
+          <view class="cell" @click="syncDisk">
+            <view class="cell-main">
+              <text class="cell-title">同步磁盘</text>
+              <text class="cell-sub muted">{{
+                syncing ? '正在重扫磁盘…' : '在电脑上改了文件？重扫一遍让 App 立刻看到'
+              }}</text>
+            </view>
+            <view :class="['chev', syncing ? 'is-spin' : '']">
+              <GIcon name="refresh" :size="30" :weight="2" />
+            </view>
           </view>
         </view>
       </view>
@@ -555,6 +567,7 @@ import {
   deleteSub,
   listSubs,
   renameSubDir,
+  rescan,
   saveAdminAi,
   saveColumns,
   saveSite,
@@ -660,6 +673,38 @@ const themeOptions: Array<{ value: ThemeMode; label: string }> = [
 
 function pickTheme(mode: ThemeMode): void {
   setThemeMode(mode)
+}
+
+/* ---------------- 同步磁盘 ---------------- */
+const syncing = ref(false)
+
+/**
+ * 全量重扫磁盘并刷新前端。
+ *
+ * 只调接口不够：scanner 更新的是**后端索引**，前端的 notes.roots / site.info
+ * 都是内存快照，不重拉的话界面还是旧的（Web 那边踩过同一个坑）。
+ */
+async function syncDisk(): Promise<void> {
+  if (syncing.value) return
+  syncing.value = true
+  try {
+    const r = await rescan()
+    await Promise.all([siteStore.load(true), notesStore.load(true)])
+    const parts = [`新增 ${r.created}`, `更新 ${r.updated}`]
+    if (r.moved) parts.push(`移动 ${r.moved}`)
+    if (r.deleted) parts.push(`删除 ${r.deleted}`)
+    const errs = r.errors?.length ? `\n${r.errors.length} 个文件解析失败，详情见后端日志` : ''
+    uni.showModal({
+      title: '同步完成',
+      content: `共扫描 ${r.total} 个文件\n${parts.join(' · ')}${errs}`,
+      showCancel: false,
+      confirmText: '知道了',
+    })
+  } catch (err: any) {
+    uni.showToast({ title: err?.reason || '同步失败', icon: 'none' })
+  } finally {
+    syncing.value = false
+  }
 }
 
 /* ---------------- 站点信息（admin） ---------------- */
@@ -1683,6 +1728,17 @@ onShow(() => {
 .empty-hint .muted {
   font-size: 14px;
   color: var(--faint);
+}
+
+/* 同步中：图标转起来，说明「真的在跑」而不是点了没反应 */
+.chev.is-spin {
+  animation: gtop-spin 900ms linear infinite;
+}
+
+@keyframes gtop-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .test-fail {

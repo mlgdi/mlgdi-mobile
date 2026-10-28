@@ -50,6 +50,35 @@ export function saveColumns(items: AdminColumn[]): Promise<{ ok: boolean; messag
   return request({ method: 'PUT', path: '/api/v1/admin/columns', body: { items } })
 }
 
+/* ---------------- 磁盘同步 ---------------- */
+
+export interface ScanResult {
+  total: number
+  created: number
+  updated: number
+  moved: number
+  deleted: number
+  skipped?: number
+  errors?: string[]
+}
+
+/**
+ * 手动全量重扫磁盘。
+ *
+ * 为什么需要：watchdog 平时会自己扫，但它只更新**后端索引**，前端页面不会自己变；
+ * 而且外部编辑器写入时偶发漏事件（大文件、临时锁）。给一个显式入口，
+ * 避免「文件改了但 App 里还是旧的」时只能等重启。
+ */
+export function rescan(force = false): Promise<ScanResult> {
+  return request({
+    method: 'POST',
+    path: '/api/v1/admin/scan',
+    query: force ? { force: true } : undefined,
+    // 全量重扫是重活（大库几十秒），默认 15s 会先超时
+    timeout: 120000,
+  })
+}
+
 /* ---------------- 小类（目录）增删改查 ---------------- */
 
 /** 磁盘上的一个子目录。`alias` 是 site.yaml 里的显示名（空 = 用目录名） */
