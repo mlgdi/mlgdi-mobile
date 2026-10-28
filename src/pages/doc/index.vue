@@ -12,12 +12,27 @@
       </template>
     </GTopBar>
 
-    <!-- 阅读菜单：分享 / 字体 / 深浅切换 / 编辑 / 删除 -->
+    <!-- 阅读菜单：分享 / 归档或移动 / 字体 / 深浅切换 / 编辑 / 删除 -->
     <view v-if="menuOpen" class="pop-mask" @click="menuOpen = false" />
     <view v-if="menuOpen" class="menu-pop">
       <view class="menu-item" @click="shareDoc">
         <GIcon name="send" :size="32" />
         <text class="menu-t">分享</text>
+      </view>
+      <!-- 归档与移动互斥：草稿在收集箱里叫「归档」（还要连带收编碎片），
+           已经在正式目录里的就是纯物理移动。同一时刻只出现一个，
+           两个都摆出来会让人猜「到底该点哪个」 -->
+      <view v-if="canEdit && doc && inInbox" class="menu-item" @click="openDirSheet('archive')">
+        <GIcon name="folder" :size="32" />
+        <text class="menu-t">归档到…</text>
+      </view>
+      <view
+        v-else-if="canEdit && doc"
+        class="menu-item"
+        @click="openDirSheet('move')"
+      >
+        <GIcon name="folder" :size="32" />
+        <text class="menu-t">移动到…</text>
       </view>
       <view class="menu-item" @click="openFontSheet">
         <GIcon name="eye" :size="32" />
@@ -184,6 +199,16 @@
         <view class="sheet-tail" />
       </scroll-view>
     </view>
+
+    <!-- 归档 / 移动：底部抽屉选目标目录，选完立刻执行 -->
+    <GDirSheet
+      :open="dirSheet"
+      :title="dirMode === 'archive' ? '归档到' : '移动到'"
+      :current="currentDir"
+      :busy="dirBusy"
+      @close="dirSheet = false"
+      @pick="onPickDir"
+    />
   </view>
 </template>
 
@@ -192,7 +217,14 @@ import { computed, nextTick, ref } from 'vue'
 import { onLoad, onPageScroll, onUnload } from '@dcloudio/uni-app'
 import GTopBar from '../../shared/components/GTopBar.vue'
 import GIcon from '../../shared/components/GIcon.vue'
-import { doc as apiDoc, deleteDoc, type DocDetail } from '../../shared/api/notes'
+import GDirSheet from '../../shared/components/GDirSheet.vue'
+import {
+  archiveDoc,
+  doc as apiDoc,
+  deleteDoc,
+  moveDoc,
+  type DocDetail,
+} from '../../shared/api/notes'
 import { renderMarkdown, type TocItem } from '../../shared/utils/markdown'
 import { useNotesStore } from '../../shared/store/notes'
 import { columnByPath, tint } from '../../shared/config/columns'
@@ -253,6 +285,63 @@ const activeId = ref('')
 let offsets: number[] = []
 
 const col = computed(() => (doc.value ? columnByPath(doc.value.path) : undefined))
+
+/* ---------------- 归档 / 移动 ----------------
+   归档只对收集箱里的草稿开放（服务端也这么校验：`inbox.archive_not_draft`），
+   其余目录走纯物理移动。两者共用同一个目录抽屉，只换标题与落点接口。 */
+const dirSheet = ref(false)
+const dirMode = ref<'move' | 'archive'>('move')
+const dirBusy = ref(false)
+
+const inInbox = computed(() => (doc.value?.path || '').startsWith('00_Inbox/'))
+/** 文档所在目录（去掉文件名），抽屉里标成「当前」且点不动 */
+const currentDir = computed(() => {
+  const p = doc.value?.path || ''
+  const i = p.lastIndexOf('/')
+  return i > 0 ? p.slice(0, i) : p
+})
+
+function openDirSheet(mode: 'move' | 'archive'): void {
+  if (!doc.value) return
+  dirMode.value = mode
+  menuOpen.value = false
+  dirSheet.value = true
+}
+
+/** 目录的显示名：栏目根给中文名，小类给最后一段（Toast 里不出现 03_Articles 这种） */
+function dirName(path: string): string {
+  const col = columnByPath(path)
+  // columnByPath 对子目录也会命中（前缀匹配），必须比是不是根
+  if (col && col.path === path) return col.name
+  return path.split('/').pop() || path
+}
+
+async function onPickDir(path: string): Promise<void> {
+  const d = doc.value
+  if (!d || dirBusy.value) return
+  dirBusy.value = true
+  try {
+    if (dirMode.value === 'archive') {
+      const res = await archiveDoc(d.id, path)
+      const extra = res.items_archived ? `，${res.items_archived} 条碎片一并归档` : ''
+      uni.showToast({ title: `已归档到 ${dirName(path)}${extra}`, icon: 'none' })
+    } else {
+      // 移动是文件级操作：目标要带文件名，后端不替我们拼
+      const name = (d.path || '').split('/').pop() || ''
+      await moveDoc(d.id, `${path}/${name}`, d.version)
+      uni.showToast({ title: `已移动到 ${dirName(path)}`, icon: 'none' })
+    }
+    dirSheet.value = false
+    // 路径变了：正文要重拉（反链、栏目色都跟着变），列表树也得强制刷 ——
+    // notes.load() 有 5 分钟缓存，不 force 的话回到列表还在旧栏目里
+    await load()
+    void notes.load(true)
+  } catch (err: any) {
+    uni.showToast({ title: err?.reason || err?.message || '操作失败', icon: 'none' })
+  } finally {
+    dirBusy.value = false
+  }
+}
 
 /** 栏目色按主题取：深色模式下 main/ink 的浅色版在 #161617 上不够亮 */
 const colMain = computed(() => {

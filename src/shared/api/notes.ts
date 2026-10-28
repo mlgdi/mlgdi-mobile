@@ -162,3 +162,59 @@ export function publishDoc(
 export function deleteDoc(id: string): Promise<{ ok?: boolean }> {
   return request({ method: 'DELETE', path: '/api/v1/notes/doc', query: { id } })
 }
+
+// ---------------------------------------------------------------------------
+// 目录 / 移动 / 归档
+// ---------------------------------------------------------------------------
+
+export interface VaultDir {
+  /** vault 相对路径，如 `03_Articles/AI` */
+  path: string
+  /** 最后一个路径段，磁盘真实名字 */
+  name: string
+  /** site.yaml 里登记的显示名，没有则为空串 */
+  alias: string
+}
+
+/**
+ * 可选目录列表：**磁盘真实目录，含空目录**。
+ *
+ * 不能用 `tree()` 的目录树代替 —— 树只含有文章的目录，刚建好的空小类
+ * 恰恰最需要出现在「移到这里」的列表里。
+ */
+export function dirs(): Promise<{ items: VaultDir[] }> {
+  return request({ path: '/api/v1/notes/dirs' })
+}
+
+/**
+ * 移动：纯文件级移动，`targetPath` **必须带文件名**。
+ *
+ * 服务端不做「帮我补文件名」这种体贴，因为它是文件操作的直通口；
+ * 目录 + '/原名' 由调用方拼。
+ */
+export function moveDoc(
+  source: string,
+  targetPath: string,
+  baseVersion?: number,
+): Promise<{ doc: DocBrief; message: string }> {
+  return request({
+    method: 'POST',
+    path: '/api/v1/notes/move',
+    body: { source, target_path: targetPath, base_version: baseVersion ?? null },
+  })
+}
+
+/**
+ * 归档：只对 `00_Inbox/` 下的草稿有效（服务端强校验），
+ * 除了挪目录，还会把这篇草稿收编的碎片一起标记归档。
+ */
+export function archiveDoc(
+  id: string,
+  targetDir: string,
+): Promise<{ doc: DocBrief; items_archived: number; message: string }> {
+  return request({
+    method: 'POST',
+    path: '/api/v1/inbox/archive',
+    body: { doc_id: id, target_dir: targetDir },
+  })
+}
