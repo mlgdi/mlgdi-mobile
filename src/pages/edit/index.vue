@@ -1834,7 +1834,8 @@ onLoad((options: any) => {
   background-color: var(--surface);
   border-radius: var(--r-lg) var(--r-lg) 0 0;
   transform: translateY(110%);
-  transition: transform 260ms cubic-bezier(0.34, 1.4, 0.64, 1);
+  /* 抽屉统一用无回弹曲线：overshoot 会让元素瞬时高过视口 */
+  transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .ai-sheet.is-open {

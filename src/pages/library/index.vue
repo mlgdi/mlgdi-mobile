@@ -31,7 +31,7 @@
           placeholder="搜索标题 / 摘要"
           placeholder-class="ph"
           confirm-type="search"
-          :focus="searching"
+          :focus="searchFocus"
         />
       </view>
 
@@ -137,7 +137,7 @@
     </view>
 
     <!-- 新建：默认落在当前栏目（首页 → 收集箱），与 Web 的 NewDocDialog 同一行为 -->
-    <view v-if="newOpen" class="mask" @click="newOpen = false" />
+    <view v-if="newOpen" class="mask" @click="closeNew" />
     <view :class="['new-sheet', { 'is-open': newOpen }]">
       <view class="sheet-grip" />
       <view class="sheet-head">
@@ -145,12 +145,19 @@
         <text class="sheet-sub">{{ activeCol ? `默认落在「${activeCol.name}」` : '默认落在收集箱' }}</text>
       </view>
 
+      <!-- focus 不能绑「弹层是否打开」这个常驻布尔：
+           它在每次输入重渲染时都还是 true，uni 会反复调 focus()，
+           键盘跟着抖，页面就像卡死。autoFocus 只在上场动画结束后置一次 true，
+           关闭时再置回 false —— 注意不能在 @focus 里改回 false，
+           uni 把 focus 属性当指令用，false 会直接 blur()，聚焦后立刻掉。
+           注意 adjust-position 保持默认（true）：iOS 的键盘是覆盖层，
+           关掉上推会把底部弹层直接埋在键盘下面。 -->
       <input
         v-model="newTitle"
         class="new-input"
         placeholder="标题"
         placeholder-class="ph"
-        :focus="newOpen"
+        :focus="autoFocus"
         :maxlength="80"
         confirm-type="done"
         @confirm="doCreate"
@@ -206,7 +213,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onPageScroll, onPullDownRefresh, onReachBottom, onShow } from '@dcloudio/uni-app'
+import { onPageScroll, onPullDownRefresh, onReachBottom, onShow, onUnload } from '@dcloudio/uni-app'
 import { useNotesStore, type FlatDoc } from '../../shared/store/notes'
 import { useAuthStore } from '../../shared/store/auth'
 import { useSiteStore } from '../../shared/store/site'
@@ -426,9 +433,24 @@ function switchColumn(code: TabCode): void {
   uni.setStorageSync('garden.column', code)
 }
 
+/** 搜索框的一次性聚焦（与新建弹层同一个道理：不能把 focus 绑在一个常驻布尔上） */
+const searchFocus = ref(false)
+
 function toggleSearch(): void {
   searching.value = !searching.value
-  if (!searching.value) keyword.value = ''
+  if (!searching.value) {
+    keyword.value = ''
+    searchFocus.value = false
+    try {
+      uni.hideKeyboard()
+    } catch {
+      /* 忽略 */
+    }
+  } else {
+    setTimeout(() => {
+      if (searching.value) searchFocus.value = true
+    }, 60)
+  }
   paged.reset()
 }
 
@@ -489,10 +511,37 @@ function dirLabel(path: string): string {
 
 const canCreate = computed(() => newTitle.value.trim().length > 0 && !creating.value)
 
+const autoFocus = ref(false)
+let focusTimer: ReturnType<typeof setTimeout> | null = null
+
 function openNew(): void {
+  // 连点不重入：重复 open 会把入场动画与聚焦再排一遍
+  if (newOpen.value) return
   newDir.value = activeCol.value?.path || '00_Inbox'
   newTitle.value = ''
   newOpen.value = true
+  // 等入场动画走完再聚焦。键盘与 transform 同时动，是「点新建整屏卡住」的头号嫌疑
+  autoFocus.value = false
+  if (focusTimer) clearTimeout(focusTimer)
+  focusTimer = setTimeout(() => {
+    focusTimer = null
+    if (newOpen.value) autoFocus.value = true
+  }, 280)
+}
+
+function closeNew(): void {
+  if (focusTimer) {
+    clearTimeout(focusTimer)
+    focusTimer = null
+  }
+  autoFocus.value = false
+  newOpen.value = false
+  // 弹层收起时主动收键盘：不然键盘挂在那儿，页面看着像没反应
+  try {
+    uni.hideKeyboard()
+  } catch {
+    /* 不支持就忽略 */
+  }
 }
 
 function onPickNewDir(path: string): void {
@@ -512,7 +561,7 @@ async function doCreate(): Promise<void> {
       template: isBooklet ? 'booklet' : 'post',
       visibility: newVisibility.value,
     })
-    newOpen.value = false
+    closeNew()
     await notes.load(true)
     uni.navigateTo({ url: `/pages/edit/index?id=${encodeURIComponent(res.doc.id)}` })
   } catch (err: any) {
@@ -521,6 +570,14 @@ async function doCreate(): Promise<void> {
     creating.value = false
   }
 }
+
+// 页面卸掉时清掉聚焦定时器，别让回调打到已销毁的组件上
+onUnload(() => {
+  if (focusTimer) {
+    clearTimeout(focusTimer)
+    focusTimer = null
+  }
+})
 
 function toInbox(): void {
   uni.navigateTo({ url: '/pages/inbox/index' })
@@ -922,7 +979,9 @@ onPullDownRefresh(async () => {
   background-color: var(--surface);
   border-radius: var(--r-lg) var(--r-lg) 0 0;
   transform: translateY(110%);
-  transition: transform 260ms cubic-bezier(0.34, 1.4, 0.64, 1);
+  /* 不用带回弹的曲线：overshoot 会让元素瞬时高过视口，
+     和键盘弹出的 viewport 变化撞在一起（iOS 上会整屏卡住） */
+  transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .new-sheet.is-open {
@@ -1021,31 +1080,6 @@ onPullDownRefresh(async () => {
 .btn-off {
   background-color: var(--surface-2);
   color: var(--faint);
-}
-
-/* ---------------- 新建面板 ---------------- */
-.mask {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  background-color: rgba(0, 0, 0, 0.42);
-}
-
-.new-sheet {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 91;
-  padding: 12rpx 32rpx calc(env(safe-area-inset-bottom) + 24rpx);
-  background-color: var(--surface);
-  border-radius: var(--r-lg) var(--r-lg) 0 0;
-  transform: translateY(110%);
-  transition: transform 260ms cubic-bezier(0.34, 1.4, 0.64, 1);
-}
-
-.new-sheet.is-open {
-  transform: translateY(0);
 }
 
 .sheet-grip {
