@@ -258,6 +258,13 @@ page {
   background-color: var(--accent-hover);
 }
 
+/* uni 的 <button> 自带 ::after 细边框：实心按钮上看不出来，
+   透明底的（btn-danger / btn-text）会露出一圈黑线，像被塞进了一个格子。
+   项目里的按钮都有自发背景，统一去掉。 */
+.btn::after {
+  border: none;
+}
+
 .btn-ghost {
   background-color: var(--surface-2);
   color: var(--text);

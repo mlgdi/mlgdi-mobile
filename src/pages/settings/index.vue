@@ -226,7 +226,7 @@
                 <GIcon name="folder" :size="30" :weight="2" class="sub-ico" />
                 <view class="cell-main">
                   <text class="cell-title">{{ row.alias || row.name }}</text>
-                  <text class="cell-sub muted">{{ subHint(row) }}</text>
+                  <text :class="['cell-sub', row.missing ? 'is-missing' : 'muted']">{{ subHint(row) }}</text>
                 </view>
                 <view class="chev"><GIcon name="chevron-right" :size="28" /></view>
               </view>
@@ -250,23 +250,64 @@
     <template v-else-if="panel === 'subEdit' && curSub">
       <view class="section">
         <text class="section-label muted">{{ curSub.path }}</text>
+
+        <!-- 残影：磁盘上已经没有这个文件夹，只剩配置里的一条显示名 -->
+        <text v-if="curSub.missing" class="warn-note">
+          这个文件夹在磁盘上已经不存在了，只剩站点配置里的一条显示名。可以直接清理掉。
+        </text>
+
         <view class="card padded">
           <view class="fld">
             <text class="fld-label">显示名（留空 = 用目录名）</text>
-            <input v-model="subAlias" class="fld-input" :placeholder="curSub.name" />
+            <input
+              v-model="subAlias"
+              class="fld-input"
+              :disabled="curSub.missing"
+              :placeholder="curSub.name"
+            />
           </view>
           <view class="fld">
             <text class="fld-label">目录名（物理路径）</text>
             <view class="row-inline">
               <text class="mono">{{ curSub.name }}</text>
-              <text class="mini-btn" @click="renameCurSub">重命名</text>
+              <text v-if="!curSub.missing" class="mini-btn" @click="renameCurSub">重命名</text>
+              <text v-else class="mini-btn is-off">已失效</text>
             </view>
           </view>
         </view>
-        <button :class="['btn', 'save-btn', subBusy ? 'btn-off' : '']" @click="saveSubAlias">
+        <button
+          v-if="!curSub.missing"
+          :class="['btn', 'save-btn', subBusy ? 'btn-off' : '']"
+          @click="saveSubAlias"
+        >
           {{ subBusy ? '保存中…' : '保存显示名' }}
         </button>
         <text class="note muted">显示名只影响侧栏与列表的呈现，目录本身不动，双链安全。</text>
+      </view>
+
+      <!-- 同级顺序：顺序只存在站点的 subs 配置里（磁盘枚举是字母序），
+           所以上移/下移是改配置并整份回写，不是改目录名。 -->
+      <view v-if="siblingList.length > 1" class="section">
+        <text class="section-label muted"
+          >同级顺序（第 {{ siblingIndex + 1 }} / {{ siblingList.length }}）</text
+        >
+        <view class="btn-row">
+          <button
+            :class="['btn', 'btn-ghost', canMoveUp ? '' : 'btn-off']"
+            :disabled="!canMoveUp"
+            @click="moveSub(curSub.path, -1)"
+          >
+            上移
+          </button>
+          <button
+            :class="['btn', 'btn-ghost', canMoveDown ? '' : 'btn-off']"
+            :disabled="!canMoveDown"
+            @click="moveSub(curSub.path, 1)"
+          >
+            下移
+          </button>
+        </view>
+        <text class="note muted">调整侧栏与列表里的先后顺序，保存即生效。</text>
       </view>
 
       <view class="section">
@@ -284,7 +325,7 @@
                 <GIcon name="folder" :size="30" :weight="2" class="sub-ico" />
                 <view class="cell-main">
                   <text class="cell-title">{{ s.alias || s.name }}</text>
-                  <text class="cell-sub muted">{{ subHint(s) }}</text>
+                  <text :class="['cell-sub', s.missing ? 'is-missing' : 'muted']">{{ subHint(s) }}</text>
                 </view>
                 <view class="chev"><GIcon name="chevron-right" :size="28" /></view>
               </view>
@@ -300,8 +341,10 @@
       </view>
 
       <view class="section">
-        <button class="btn btn-danger" @click="removeCurSub">删除这个小类</button>
-        <text class="note muted">只有空目录能删；目录里还有文章时会被拒绝，避免误删正文。</text>
+        <button :class="['btn', curSub.missing ? 'btn-ghost' : 'btn-danger']" @click="removeCurSub">
+          {{ curSub.missing ? '清理残留条目' : '删除这个小类' }}
+        </button>
+        <text class="note muted">{{ deleteHint }}</text>
       </view>
     </template>
 
@@ -498,6 +541,8 @@ import GTopBar from '../../shared/components/GTopBar.vue'
 import GIcon from '../../shared/components/GIcon.vue'
 import { onShow } from '@dcloudio/uni-app'
 import { useAuthStore } from '../../shared/store/auth'
+import { useSiteStore } from '../../shared/store/site'
+import { useNotesStore } from '../../shared/store/notes'
 import { getBaseUrl } from '../../shared/config/server'
 import { listDevices, revokeDevice, type DeviceRow } from '../../shared/api/auth'
 import { resolvedTheme, themeMode, setThemeMode, type ThemeMode } from '../../shared/theme'
@@ -511,6 +556,7 @@ import {
   listSubs,
   renameSubDir,
   saveAdminAi,
+  saveColumns,
   saveSite,
   saveWorkflows,
   setSubAlias,
@@ -534,6 +580,8 @@ type Panel =
   | 'about'
 
 const auth = useAuthStore()
+const siteStore = useSiteStore()
+const notesStore = useNotesStore()
 const appVersion = APP_VERSION
 const baseUrl = ref(getBaseUrl())
 const devices = ref<DeviceRow[]>([])
@@ -645,14 +693,59 @@ const curSub = ref<AdminSubDir | null>(null)
 const subAlias = ref('')
 const subBusy = ref(false)
 
-/**
- * 行副说明：**别名与目录名相同时不要重复显示**（同名别名是历史配置，很常见）。
- * 有下级就报数量，其次报空目录/有内容。
- */
+/* ---------------- 配置与磁盘对账 ----------------
+   小类的「存在」以**磁盘目录**为唯一权威，site.yaml 的 subs 只负责
+   「显示什么名字、按什么顺序」。两边对不上的两种情况都要能看见：
+   · 磁盘有、配置没有 → 正常显示，按名字排在配置项之后；
+   · 配置有、磁盘没了（用户在资源管理器里直接删了文件夹）→ 合成 missing 行，
+     可以在详情页清理掉这条配置（只删配置，不动文件）。 */
+
+/** 配置里某个目录的**直接**子项，数组顺序就是侧栏顺序 */
+function cfgChildren(dir: string): string[] {
+  const subs = editCol.value?.subs ?? []
+  return subs.map((s) => s.path).filter((p) => p.split('/').slice(0, -1).join('/') === dir)
+}
+
+function cfgAlias(path: string): string {
+  const hit = (editCol.value?.subs ?? []).find((s) => s.path === path)
+  return String(hit?.name || '').trim()
+}
+
+/** 磁盘列表 + 配置残影 → 按配置顺序排好的行 */
+function mergeSubs(dir: string, disk: AdminSubDir[]): AdminSubDir[] {
+  const order = new Map(cfgChildren(dir).map((p, i) => [p, i] as const))
+  const seen = new Set(disk.map((d) => d.path))
+  const ghosts: AdminSubDir[] = cfgChildren(dir)
+    .filter((p) => !seen.has(p))
+    .map((p) => ({
+      name: p.split('/').pop() || p,
+      path: p,
+      alias: cfgAlias(p),
+      empty: false,
+      child_count: 0,
+      has_children: false,
+      file_count: 0,
+      files: [],
+      missing: true,
+    }))
+  return [...disk, ...ghosts].sort((a, b) => {
+    const oa = order.get(a.path)
+    const ob = order.get(b.path)
+    // 用户调过的顺序不能被磁盘枚举打乱；没登记过的排到后面再按名字
+    if (oa === undefined && ob === undefined) return a.name.localeCompare(b.name, 'zh')
+    if (oa === undefined) return 1
+    if (ob === undefined) return -1
+    return oa - ob
+  })
+}
+
+/** 行副说明：别名与目录名相同时不要重复显示（同名别名是历史配置，很常见） */
 function subHint(s: AdminSubDir): string {
+  if (s.missing) return '目录已不存在'
   if (s.alias && s.alias !== s.name) return s.name
   if (s.child_count > 0) return `${s.child_count} 个下级`
-  return s.empty ? '空目录' : '有内容'
+  if (s.empty) return '空目录'
+  return s.file_count ? `${s.file_count} 个文件` : '有内容'
 }
 
 /** 栏目根的树拍平成行（缩进靠 depth）——比递归组件简单，展开状态决定下钻到第几层 */
@@ -668,13 +761,58 @@ const subRows = computed(() => {
   return out
 })
 
+/** 同级的兄弟行（含配置残影）：排序按钮的可用性看它在里面的位置 */
+const siblingList = computed<AdminSubDir[]>(() => {
+  const sub = curSub.value
+  if (!sub) return []
+  const parent = sub.path.split('/').slice(0, -1).join('/')
+  return subLists.value[parent] || []
+})
+
+const siblingIndex = computed(() =>
+  siblingList.value.findIndex((x) => x.path === curSub.value?.path),
+)
+const canMoveUp = computed(() => siblingIndex.value > 0)
+const canMoveDown = computed(
+  () => siblingIndex.value >= 0 && siblingIndex.value < siblingList.value.length - 1,
+)
+
+/** 删除按钮下的说明：三种情况三句话，点之前就知道会发生什么 */
+const deleteHint = computed(() => {
+  const sub = curSub.value
+  if (!sub) return ''
+  if (sub.missing) return '文件夹已不在磁盘上，清理只删这条显示配置，不动任何文件。'
+  if (sub.file_count > 0 || sub.child_count > 0 || !sub.empty) {
+    const kids = sub.child_count ? `、${sub.child_count} 个下级目录` : ''
+    return `目录里还有 ${sub.file_count} 个文件${kids}，删除会被拒绝 —— 请先移走其中的内容。`
+  }
+  return '空目录，删除后无法恢复。'
+})
+
+/** 小类改动后：侧栏（site）与文档树（notes）必须一起重载，否则页面看着改了、侧栏还是旧的 */
+async function refreshNav(): Promise<void> {
+  await Promise.all([siteStore.load(true), notesStore.load(true)])
+}
+
+/** 重拉栏目配置（含 subs 顺序与别名）。页面上的 editCol 是快照，改完必须换新的 */
+async function reloadCol(): Promise<void> {
+  try {
+    const full = await adminColumns()
+    cols.value = full.items || []
+    const fresh = cols.value.find((c) => c.path === editCol.value?.path)
+    if (fresh) editCol.value = fresh
+  } catch {
+    /* 拉失败就沿用旧快照，至少不让页面空白 */
+  }
+}
+
 async function loadSubs(dir: string, force = false): Promise<void> {
   if (!dir) return
   if (!force && subLists.value[dir]) return
   subLoading.value = { ...subLoading.value, [dir]: true }
   try {
     const res = await listSubs(dir)
-    subLists.value = { ...subLists.value, [dir]: res.items || [] }
+    subLists.value = { ...subLists.value, [dir]: mergeSubs(dir, res.items || []) }
   } catch (err: any) {
     uni.showToast({ title: err?.reason || '小类加载失败', icon: 'none' })
   } finally {
@@ -752,12 +890,14 @@ function createChild(parent: string): void {
       if (!name) return
       createSub(parent, name)
         .then(async () => {
+          await reloadCol()
           await loadSubs(parent, true)
           if (panel.value === 'columnEdit') {
             const next = new Set(expanded.value)
             next.add(parent)
             expanded.value = next
           }
+          await refreshNav()
           uni.showToast({ title: '已新建', icon: 'none' })
         })
         .catch((err: any) => {
@@ -770,10 +910,14 @@ function createChild(parent: string): void {
 function saveSubAlias(): void {
   const sub = curSub.value
   if (!sub) return
+  if (sub.missing) {
+    uni.showToast({ title: '目录已不存在，只能清理', icon: 'none' })
+    return
+  }
   const alias = subAlias.value.trim()
   subBusy.value = true
   setSubAlias(sub.path, alias)
-    .then((res) => {
+    .then(async (res) => {
       const saved = (res.name ?? alias).trim()
       const parent = sub.path.split('/').slice(0, -1).join('/')
       subLists.value = {
@@ -784,6 +928,8 @@ function saveSubAlias(): void {
       }
       curSub.value = { ...sub, alias: saved }
       subAlias.value = saved
+      await reloadCol()
+      await refreshNav()
       uni.showToast({ title: saved ? '显示名已更新' : '已恢复用目录名', icon: 'none' })
     })
     .catch((err: any) => {
@@ -794,10 +940,86 @@ function saveSubAlias(): void {
     })
 }
 
+/**
+ * 同级排序：交换配置里这两个 path 的位置，整份回写 site.yaml。
+ * 顺序只在配置里有意义（磁盘枚举是字母序），所以不能靠改目录名实现。
+ */
+const subMoving = ref(false)
+
+/**
+ * 把某个父目录下的条目，按 ordered 重排后整体填回原位。
+ *
+ * 做法是「整块摘出 → 重排 → 从第一个原位置插回」：
+ * 这样其它层级的条目顺序一个字都不动，也不会出现「填位置时把某个 path 顶掉」
+ * 那种只在特定顺序下才暴露的错位（第一版就是按索引逐个填，漏过一条）。
+ */
+function reorderSubs(
+  col: AdminColumn,
+  parent: string,
+  ordered: string[],
+): Array<{ path: string; name: string }> {
+  const subs = [...(col.subs || [])]
+  const mine = (path: string): boolean => path.split('/').slice(0, -1).join('/') === parent
+  const idxs: number[] = []
+  subs.forEach((s, i) => {
+    if (mine(s.path)) idxs.push(i)
+  })
+  const byPath = new Map(subs.map((s) => [s.path, s]))
+  // 配置里没登记过的新目录，name 留空 = 用目录名
+  const block = ordered.map((p) => byPath.get(p) ?? { path: p, name: '' })
+  if (!idxs.length) return [...subs, ...block]
+  for (let k = idxs.length - 1; k >= 0; k--) subs.splice(idxs[k], 1)
+  subs.splice(idxs[0], 0, ...block)
+  return subs
+}
+
+function moveSub(path: string, delta: -1 | 1): void {
+  const col = editCol.value
+  if (!col || subMoving.value) return
+  const parent = path.split('/').slice(0, -1).join('/')
+  const list = (subLists.value[parent] || []).map((s) => s.path)
+  const i = list.indexOf(path)
+  const j = i + delta
+  if (i < 0 || j < 0 || j >= list.length) return
+
+  const swapped = [...list]
+  ;[swapped[i], swapped[j]] = [swapped[j], swapped[i]]
+
+  const before = col.subs
+  const subs = reorderSubs(col, parent, swapped)
+  subMoving.value = true
+  // 乐观更新：先把顺序换过来，失败再整体回滚
+  editCol.value = { ...col, subs }
+  cols.value = cols.value.map((c) => (c.path === col.path ? editCol.value! : c))
+  subLists.value = {
+    ...subLists.value,
+    [parent]: swapped.map((p) => (subLists.value[parent] || []).find((s) => s.path === p)!),
+  }
+
+  saveColumns(cols.value)
+    .then(async () => {
+      await refreshNav()
+      uni.showToast({ title: '顺序已保存', icon: 'none' })
+    })
+    .catch(async (err: any) => {
+      editCol.value = { ...col, subs: before }
+      cols.value = cols.value.map((c) => (c.path === col.path ? editCol.value! : c))
+      await loadSubs(parent, true)
+      uni.showToast({ title: err?.reason || '排序保存失败', icon: 'none' })
+    })
+    .finally(() => {
+      subMoving.value = false
+    })
+}
+
 /** 目录改名：两道确认（先讲清代价，再输入新名字），绝不悄悄动 */
 function renameCurSub(): void {
   const sub = curSub.value
   if (!sub) return
+  if (sub.missing) {
+    uni.showToast({ title: '目录已不存在，只能清理', icon: 'none' })
+    return
+  }
   uni.showModal({
     title: '重命名目录',
     content: `「${sub.name}」会改名。指向旧路径的双链和链接会失效；正文内容本身不会被改写。`,
@@ -837,10 +1059,11 @@ function doRenameSub(sub: AdminSubDir, name: string): void {
       subStack.value = subStack.value.map((p) =>
         p === oldPath ? newPath : p.startsWith(oldPath + '/') ? newPath + p.slice(oldPath.length) : p,
       )
-      const merged = { ...sub, name, path: newPath }
-      curSub.value = merged
+      curSub.value = { ...sub, name, path: newPath }
+      await reloadCol()
       await loadSubs(oldParent, true)
       await loadSubs(newPath, true)
+      await refreshNav()
       uni.showToast({ title: '目录已改名', icon: 'none' })
     })
     .catch((err: any) => {
@@ -848,31 +1071,65 @@ function doRenameSub(sub: AdminSubDir, name: string): void {
     })
 }
 
+/* ---------------- 删除：三分支，绝不给「顺手删正文」的出口 ---------------- */
+
 function removeCurSub(): void {
   const sub = curSub.value
   if (!sub) return
+
+  // ① 配置残影：文件夹早就没了，只清理这条显示配置
+  if (sub.missing) {
+    uni.showModal({
+      title: '清理残留条目',
+      content: `「${sub.alias || sub.name}」的文件夹在磁盘上已经不存在了。清理只删这条显示配置，不动任何文件。`,
+      confirmText: '清理',
+      success: (res) => {
+        if (res.confirm) void doRemoveSub(sub)
+      },
+    })
+    return
+  }
+
+  // ② 非空：不是「按钮坏了」，是保护。把里面还剩什么说清楚，不给强删出口
+  const occupied = sub.file_count > 0 || sub.child_count > 0 || !sub.empty
+  if (occupied) {
+    const names = sub.files.length ? `（${sub.files.join('、')}${sub.file_count > sub.files.length ? '…' : ''}）` : ''
+    const kids = sub.child_count ? `、${sub.child_count} 个下级目录` : ''
+    uni.showModal({
+      title: '目录非空，不能删除',
+      content: `里面还有 ${sub.file_count} 个文件${kids}${names}。请先移走或删除其中的内容 —— 正文是 Markdown 文件，这里不会替你删。`,
+      showCancel: false,
+      confirmText: '知道了',
+    })
+    return
+  }
+
+  // ③ 空目录：明确说「无法恢复」再删
   uni.showModal({
-    title: '删除这个小类？',
-    content: `「${sub.alias || sub.name}」目录会被删除。只有空目录能删，里面有文章时会被拒绝。`,
+    title: '删除小类',
+    content: `目录「${sub.name}」是空的，确认删除？删完这个目录就没了，无法恢复。`,
     confirmText: '删除',
     success: (res) => {
-      if (!res.confirm) return
-      const parent = sub.path.split('/').slice(0, -1).join('/')
-      deleteSub(sub.path)
-        .then(async () => {
-          await loadSubs(parent, true)
-          uni.showToast({ title: '已删除', icon: 'none' })
-          leaveSub()
-        })
-        .catch((err: any) => {
-          uni.showToast({ title: err?.reason || '删除失败', icon: 'none' })
-        })
+      if (res.confirm) void doRemoveSub(sub)
     },
   })
 }
 
+async function doRemoveSub(sub: AdminSubDir): Promise<void> {
+  const parent = sub.path.split('/').slice(0, -1).join('/')
+  try {
+    await deleteSub(sub.path)
+    uni.showToast({ title: sub.missing ? '已清理配置' : '已删除', icon: 'none' })
+    await reloadCol()
+    await loadSubs(parent, true)
+    await refreshNav()
+    leaveSub()
+  } catch (err: any) {
+    uni.showToast({ title: err?.reason || '删除失败', icon: 'none' })
+  }
+}
 
-/** 小类别名留空时回退的目录名 = 路径最后一段 */
+
 function dirName(path: string): string {
   return path.split('/').pop() || path
 }
@@ -1395,6 +1652,27 @@ onShow(() => {
 
 .mini-btn:active {
   background-color: var(--bg-hover);
+}
+
+.warn-note {
+  display: block;
+  margin: 8px 0 12px;
+  padding: 10px 12px 10px 14px;
+  border-left: 3px solid #ff9f0a;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.cell-sub.is-missing {
+  color: #ff9f0a;
+}
+
+.mini-btn.is-off {
+  color: var(--faint);
+  background-color: var(--surface-2);
 }
 
 .empty-hint {

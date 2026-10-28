@@ -64,6 +64,20 @@ export interface AdminSubDir {
   /** 直接下级目录数 */
   child_count: number
   has_children: boolean
+  /** 目录里的文件数 / 前三个文件名：删除前要说清「里面还剩什么」 */
+  file_count: number
+  files: string[]
+  /**
+   * 磁盘上已经没有这个目录，只剩 site.yaml 的显示配置（残影）。
+   * **接口不返回这个字段**，由前端把配置与磁盘列表对账后合成。
+   */
+  missing?: boolean
+}
+
+/** 站点配置里的一条小类登记（顺序即侧栏顺序） */
+export interface AdminSubConfig {
+  path: string
+  name: string
 }
 
 /** 列某个目录的直接子目录。parent 可以是栏目根，也可以是任意层级的小类 */
