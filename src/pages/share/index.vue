@@ -34,6 +34,8 @@ const TITLE_TOP = 66
 const docId = ref('')
 const doc = ref<DocDetail | null>(null)
 const error = ref('')
+/** 服务端没有分享图接口（后端版本太旧）—— 与「画不出来」要分开说 */
+const serverMissing = ref(false)
 
 const h = ref(430)
 const imgPath = ref('')
@@ -324,8 +326,18 @@ async function load(): Promise<void> {
     imgPath.value = await shareCard(doc.value.id, col.value?.name || '', col.value?.main || '')
     drawing.value = false
     return
-  } catch {
-    /* 落到本机绘制 */
+  } catch (e) {
+    /*
+     * 404 = 服务端没有这个接口（后端还是 1.74 或更早）。这时**不要**退回本机
+     * canvas：那条路在老机型上画出来就是一片空白，看起来像「又坏了」，
+     * 实际原因是服务器版本太旧。直接把话说清楚。
+     */
+    if ((e as { status?: number })?.status === 404) {
+      serverMissing.value = true
+      drawing.value = false
+      return
+    }
+    /* 其它错误（缺字体、网络）：落到本机绘制，还能抢一次 */
   }
 
   await nextTick()
@@ -380,6 +392,15 @@ function save(): void {
     <GTopBar back title="分享图" :elevated="true" @back="back" />
 
     <view v-if="error" class="hint">{{ error }}</view>
+
+    <!-- 服务端版本太旧：本机 canvas 兜底只会画出空白，所以不给它机会 -->
+    <view v-else-if="serverMissing" class="hint">
+      <text class="hint-t">服务端还没有分享图接口</text>
+      <text class="hint-s">
+        把服务器上的程序更新到 1.75 及以上（分享图改由服务端渲染），再回来重试。
+        当前版本仍可以用「复制链接」分享这篇。
+      </text>
+    </view>
 
     <template v-else>
       <!-- 画布即预览：必须是普通文档流里的一层，不能套 fixed / 圆角+overflow -->
@@ -474,5 +495,18 @@ function save(): void {
   font-size: var(--fs-sm);
   color: var(--faint);
   text-align: center;
+}
+
+.hint-t {
+  display: block;
+  margin-bottom: 10px;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.hint-s {
+  display: block;
+  line-height: 1.7;
 }
 </style>
