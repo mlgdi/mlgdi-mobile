@@ -305,6 +305,8 @@ const tocOpen = ref(false)
 const activeId = ref('')
 /** 标题到文档顶部的距离，只在布局稳定后量一次，滚动时只做比较 */
 let offsets: number[] = []
+/** 当前页面滚动量。App 端 window.scrollY 不可靠，跳转与进度都用这个 */
+let pageScrollTop = 0
 
 const col = computed(() => (doc.value ? columnByPath(doc.value.path) : undefined))
 
@@ -619,20 +621,44 @@ function onDragEnd(): void {
  * 不用 selectorQuery：v-html 生成的节点不在 Vue 组件树里，选择器查不到。
  * webview 里就是普通 DOM，直接算位置最可靠。
  */
+/**
+ * 跳到某一节。
+ *
+ * 不用 `window.scrollY`：App 端它不可靠（常见是一直为 0），
+ * `rect.top + 0` 会把「目视偏移」当成文档偏移，只要当前不在顶部，
+ * 落点就会偏——表现就是「点了目录但没跳对地方」。
+ * 这里用 onPageScroll 记录的真实滚动量算绝对位置。
+ *
+ * 再兜一层：跳完 320ms 复核，若没到位就退回 `scrollIntoView`。
+ */
 function jump(id: string): void {
-  if (typeof document !== 'undefined') {
-    const el = document.getElementById(id)
-    if (el) {
-      const top = el.getBoundingClientRect().top + window.scrollY - 96
-      uni.pageScrollTo({ scrollTop: Math.max(0, top), duration: 240 })
-    }
-  }
   activeId.value = id
+  // 先收起抽屉再滚：抽屉是 fixed 全屏层，正在做 transform 动画时发起的滚动
+  // 在 App 端有概率被吃掉（点了没反应就是这个）
   tocOpen.value = false
+  const el = typeof document !== 'undefined' ? document.getElementById(id) : null
+  if (!el) return
+
+  setTimeout(() => {
+    const target = Math.max(0, el.getBoundingClientRect().top + pageScrollTop - 96)
+    uni.pageScrollTo({ scrollTop: target, duration: 240 })
+    setTimeout(() => {
+      // 已经到位就不管；差得远说明这次没生效，换一种方式再试一次
+      if (Math.abs(pageScrollTop - target) > 48) {
+        try {
+          el.scrollIntoView({ block: 'start' })
+          uni.pageScrollTo({ scrollTop: Math.max(0, target - 96), duration: 200 })
+        } catch {
+          /* 兜底也失败就算了，不弹错 */
+        }
+      }
+    }, 320)
+  }, 30)
 }
 
 onPageScroll((e) => {
   const top = e.scrollTop
+  pageScrollTop = top
   scrolled.value = top > 8
 
   if (typeof document === 'undefined') return

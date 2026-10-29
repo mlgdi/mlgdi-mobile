@@ -186,7 +186,8 @@ try {
     for (let i = 0; i < items.length; i++) {
       const meta = items[i].querySelector('.doc-meta')?.textContent || ''
       const m = meta.match(/(\d+) 字/)
-      if (m && Number(m[1]) >= 30) return i
+      // 挑一篇长文：既有正文可断言，也大概率带多个小标题（目录跳转要它）
+      if (m && Number(m[1]) >= 600) return i
     }
     return 0
   })
@@ -217,8 +218,21 @@ try {
       await page.waitForTimeout(500)
       const sheet = await page.locator('.sheet.is-open').count()
       log('目录抽屉可开', sheet > 0)
-      await page.locator('.mask').click()
-      await page.waitForTimeout(400)
+      // 点目录必须真的能跳（曾经在 App 端点了没反应：window.scrollY 不可靠）
+      const tocN = await page.locator('.toc-item').count()
+      if (tocN > 1) {
+        await page.evaluate(() => window.scrollTo(0, 0))
+        await page.waitForTimeout(300)
+        await page.locator('.toc-item').nth(tocN - 1).click()
+        await page.waitForTimeout(1400)
+        const y = await page.evaluate(() => window.scrollY)
+        log('目录点击能跳转', y > 100, `scrollY=${y}`)
+        await page.evaluate(() => window.scrollTo(0, 0))
+        await page.waitForTimeout(300)
+      } else {
+        await page.locator('.mask').click()
+        await page.waitForTimeout(400)
+      }
     }
 
     // 竖三点菜单 + 底部字号面板：切「大」后正文基准字号必须真的变
@@ -248,6 +262,21 @@ try {
       window.uni?.setStorageSync?.('garden.reader.fs', 'md')
     })
     await page.waitForTimeout(300)
+
+    // 分享图：canvas 导出必须真的出图（App 端曾一直停在「正在生成」）
+    await page.locator('.gtop .more-btn').click()
+    await page.waitForTimeout(300)
+    await page.locator('.menu-item', { hasText: '分享' }).click()
+    await page.waitForTimeout(600)
+    await page.locator('.srow', { hasText: '生成图片' }).click()
+    await page.waitForTimeout(3000)
+    const posterW = await page.evaluate(() => {
+      const im = document.querySelector('.pimg img')
+      return im ? im.naturalWidth : 0
+    })
+    log('分享图能生成', posterW > 0, `宽 ${posterW}px`)
+    await page.getByText('关闭', { exact: true }).first().click().catch(() => {})
+    await page.waitForTimeout(400)
 
     await shot(page, '04-doc')
   }

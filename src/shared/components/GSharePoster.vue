@@ -215,12 +215,13 @@ function paint(lay: Layout): void {
         destWidth: W * 3,
         destHeight: h * 3,
         success: (res: any) => {
+          stopPaintLoop()
           imgPath.value = res.tempFilePath
           busy.value = false
         },
         fail: () => {
-          failed.value = '生成失败，请重试'
-          busy.value = false
+          // 单次导出失败不立刻判死：可能只是画布还没就绪，让重试循环再来一次
+          if (imgPath.value) return
         },
       },
       instance?.proxy as any,
@@ -228,24 +229,60 @@ function paint(lay: Layout): void {
   })
 }
 
+/**
+ * 绘制 + 重试。
+ *
+ * App 端 canvas 有两个坑：
+ * 1) 原生画布没真正上屏时，`draw` 的回调可能**根本不触发**；
+ * 2) 组件刚挂载时立刻绘制，画布还没就绪，这次绘制会被静默丢掉。
+ * 所以不能只画一次：没出图就隔一会儿重画，最多 3 次，之后翻成失败态
+ * 让人能点重试——绝不停在「正在生成…」。
+ */
+let paintTimer: ReturnType<typeof setTimeout> | null = null
+
+function stopPaintLoop(): void {
+  if (paintTimer) {
+    clearTimeout(paintTimer)
+    paintTimer = null
+  }
+}
+
 async function run(): Promise<void> {
   if (!props.url) {
     failed.value = '没有可分享的地址'
     return
   }
+  stopPaintLoop()
   busy.value = true
   failed.value = ''
   imgPath.value = ''
+
+  let lay: Layout
   try {
-    const lay = measure(uni.createCanvasContext('sharePoster', instance?.proxy as any))
-    // 高度变了要等 canvas 重新排版，再画
-    canvasH.value = lay.h
-    await nextTick()
-    setTimeout(() => paint(lay), 60)
+    lay = measure(uni.createCanvasContext('sharePoster', instance?.proxy as any))
   } catch {
     failed.value = '生成失败，请重试'
     busy.value = false
+    return
   }
+
+  // 高度跟着内容走，改了尺寸要等 canvas 重新排版
+  canvasH.value = lay.h
+  await nextTick()
+
+  let tries = 0
+  const tick = (): void => {
+    if (imgPath.value) return
+    if (tries >= 3) {
+      failed.value = '生成超时，请重试'
+      busy.value = false
+      return
+    }
+    tries += 1
+    paint(lay)
+    paintTimer = setTimeout(tick, 1100)
+  }
+  paintTimer = setTimeout(tick, 60)
 }
 
 function retry(): void {
@@ -411,8 +448,14 @@ function save(): void {
 }
 
 .pcanvas {
+  /* 不能放到屏外（left: -9999px）：App 端离屏的 canvas 不真正上屏，
+     draw 回调不触发、canvasToTempFilePath 也导不出，界面就卡在「正在生成」。
+     放在视口内、透明度压到 0.01 且不接收事件，视觉上看不见但确实在渲染。 */
   position: fixed;
-  left: -9999px;
+  left: 0;
   top: 0;
+  opacity: 0.01;
+  pointer-events: none;
+  z-index: 1;
 }
 </style>
