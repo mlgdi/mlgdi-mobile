@@ -35,7 +35,7 @@ const props = withDefaults(
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 /* 卡片逻辑尺寸（px），导出按 3 倍放大，手机上才够锐 */
-const W = 340
+const W = 320
 const PAD = 24
 const QR_BOX = 165
 const TITLE_LH = 29
@@ -274,7 +274,7 @@ async function run(): Promise<void> {
   const tick = (): void => {
     if (imgPath.value) return
     if (tries >= 3) {
-      failed.value = '生成超时，请重试'
+      failed.value = '导出图片失败，可直接截图保存'
       busy.value = false
       return
     }
@@ -330,13 +330,25 @@ function save(): void {
 <template>
   <view v-if="open" class="pmask" @click="emit('close')">
     <view class="pwrap" @click.stop>
-      <view class="pcard">
-        <!-- uni 的 image 组件里才是真 <img>，src 用 dataURL（H5）或临时文件（App） -->
-        <image v-if="imgPath" :src="imgPath" mode="widthFix" class="pimg" />
-        <view v-else class="pstate">
-          <text class="pstate-t">{{ failed || '正在生成…' }}</text>
-          <text v-if="failed" class="pstate-a" @click="retry">重试</text>
-        </view>
+      <view class="pcard" :style="{ width: `${W}px` }">
+        <!-- 画布直接当预览：App 端离屏 canvas 不真正上屏，draw 回调不触发、
+             导出也拿不到图，界面就永远停在「正在生成」。放在卡片里可见地画，
+             导出成功后再换成 <image>（可以保存/长按）。 -->
+        <canvas
+          v-if="!imgPath"
+          canvas-id="sharePoster"
+          id="sharePoster"
+          class="pcanvas"
+          :style="{ width: `${W}px`, height: `${canvasH}px` }"
+        />
+        <image v-else :src="imgPath" mode="widthFix" class="pimg" />
+
+      </view>
+
+      <!-- 转换失败时画布仍然显示着海报，所以提示放卡片下面，不盖住它 -->
+      <view v-if="failed" class="pstate">
+        <text class="pstate-t">{{ failed }}</text>
+        <text class="pstate-a" @click="retry">重试</text>
       </view>
 
       <view class="pacts">
@@ -348,15 +360,6 @@ function save(): void {
       </view>
     </view>
   </view>
-
-  <!-- 离屏画布：App 端 canvas 是原生层，必须放到屏幕外，否则会盖住页面 -->
-  <canvas
-    v-if="open"
-    canvas-id="sharePoster"
-    id="sharePoster"
-    class="pcanvas"
-    :style="{ width: W + 'px', height: canvasH + 'px' }"
-  />
 </template>
 
 <style scoped>
@@ -376,12 +379,13 @@ function save(): void {
   align-items: center;
   gap: 32rpx;
   width: 100%;
-  padding: 0 64rpx;
+  /* 左右各 12px：320 的卡片在 375 屏上正好放得下 */
+  padding: 0 24rpx;
   box-sizing: border-box;
 }
 
 .pcard {
-  width: 100%;
+  position: relative;
   border-radius: var(--r-md);
   overflow: hidden;
   background-color: #fff;
@@ -394,12 +398,13 @@ function save(): void {
 }
 
 .pstate {
-  height: 480rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 16rpx;
+  gap: 10rpx;
+  padding: 0 40rpx;
+  box-sizing: border-box;
+  text-align: center;
 }
 
 .pstate-t {
@@ -448,14 +453,7 @@ function save(): void {
 }
 
 .pcanvas {
-  /* 不能放到屏外（left: -9999px）：App 端离屏的 canvas 不真正上屏，
-     draw 回调不触发、canvasToTempFilePath 也导不出，界面就卡在「正在生成」。
-     放在视口内、透明度压到 0.01 且不接收事件，视觉上看不见但确实在渲染。 */
-  position: fixed;
-  left: 0;
-  top: 0;
-  opacity: 0.01;
-  pointer-events: none;
-  z-index: 1;
+  /* 卡片的可见内容就是它：离屏画布在 App 端画不出来 */
+  display: block;
 }
 </style>

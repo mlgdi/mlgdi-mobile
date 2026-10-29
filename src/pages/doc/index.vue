@@ -504,13 +504,21 @@ function toggleTheme(): void {
    系统分享面板里能通往的地方大多是半成品（微信要 JS-SDK 卡片、朋友圈没接口），
    先把这两条做扎实，其余渠道之后再补。 */
 
-/** 公开且已发布 → 对外链接 `/p/<slug>`；否则给内部链接（打开需登录） */
+/**
+ * 公开且已发布 → 对外链接 `/p/<slug>`；否则给内部链接（打开需登录）。
+ *
+ * **必须 encodeURI**：slug 里常带中文（`2026-10-27-25条识人处世智慧`），
+ * 微信等 IM 只把 ASCII 当 URL 字符，遇到第一个汉字就断开——
+ * `https://…/p/2026-10-27-25` 才是它认的链接，后面全被丢掉。
+ * 编码后整条都是 `%E6%9D%A1…` 这种 ASCII，粘贴到哪里都不会被截断，
+ * 浏览器打开时自动解码，后端路由不受影响。
+ */
 const shareUrl = computed(() => {
   const d = doc.value
   if (!d) return ''
   const base = getBaseUrl().replace(/\/$/, '')
   if (d.slug && d.visibility === 'public' && d.status === 'published') {
-    return `${base}/p/${d.slug}`
+    return encodeURI(`${base}/p/${d.slug}`)
   }
   return `${base}/doc/${d.id}`
 })
