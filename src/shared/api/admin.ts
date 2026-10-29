@@ -140,7 +140,7 @@ export function renameSubDir(
   path: string,
   name: string,
 ): Promise<{ ok: boolean; path: string; message?: string }> {
-  return request({ method: 'POST', path: '/api/v1/admin/subs/rename', body: { path, name } })
+  return request({ method: 'POST', path: '/api/v1/admin/subs/rename-dir', body: { path, name } })
 }
 
 /* ---------------- AI 引擎与工作流（admin） ---------------- */

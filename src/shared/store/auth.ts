@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { login as apiLogin } from '../api/auth'
+import { login as apiLogin, logout as logoutApi } from '../api/auth'
 import {
   clearSession,
   getDeviceMeta,
@@ -11,6 +11,8 @@ import {
   type SessionUser,
 } from '../auth/session'
 import { ApiError } from '../api/client'
+import { getPrefs } from '../api/prefs'
+import { applyServerTheme } from '../theme'
 
 export const useAuthStore = defineStore('auth', () => {
   const session = readSession()
@@ -43,12 +45,24 @@ export const useAuthStore = defineStore('auth', () => {
 
       user.value = res.user
       logged.value = true
+      // 界面偏好跟账号走：登录后拉一次并应用（失败不挡登录）
+      try {
+        const prefs = await getPrefs()
+        applyServerTheme(prefs?.theme)
+      } catch {
+        /* 偏好拿不到就用本地缓存 */
+      }
     } finally {
       logging.value = false
     }
   }
 
   function logout(): void {
+    // 先把 refresh_token 交给服务端吊销本设备，再清本地；网络失败也照常退出
+    const session = readSession()
+    if (session?.refreshToken) {
+      void logoutApi(session.refreshToken).catch(() => undefined)
+    }
     clearSession()
     user.value = null
     logged.value = false

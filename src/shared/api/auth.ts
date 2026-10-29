@@ -21,6 +21,11 @@ export function login(payload: LoginPayload): Promise<LoginResult> {
   return request<LoginResult>({ method: 'POST', path: '/api/v1/auth/login', body: payload, auth: false })
 }
 
+/** 退出登录：把 refresh_token 交回服务端，它会吊销本设备（之后的请求 401） */
+export function logout(refreshToken: string | null): Promise<{ ok: boolean; device_revoked: boolean }> {
+  return request({ method: 'POST', path: '/api/v1/auth/logout', body: { refresh_token: refreshToken } })
+}
+
 export function me(): Promise<SessionUser & { device_id?: string | null }> {
   return request({ path: '/api/v1/auth/me' })
 }

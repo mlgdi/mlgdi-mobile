@@ -63,6 +63,11 @@ export interface DocDetail extends DocBrief {
   frontmatter?: Record<string, unknown>
 }
 
+/** 索引版本号：磁盘/别处写入后自增，用来判断要不要重拉列表 */
+export function indexVersion(): Promise<{ version: number }> {
+  return request({ path: '/api/v1/notes/version' })
+}
+
 export function tree(): Promise<{ roots: TreeNode[] }> {
   return request({ path: '/api/v1/notes/tree' })
 }

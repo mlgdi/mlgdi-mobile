@@ -6,6 +6,7 @@
  * 不必让手机上的深色偏好反过来改掉网页端。
  */
 import { ref } from 'vue'
+import { savePrefs } from './api/prefs'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 
@@ -44,7 +45,7 @@ export function recomputeTheme(): void {
   resolvedTheme.value = themeMode.value === 'system' ? systemTheme() : themeMode.value
 }
 
-export function setThemeMode(mode: ThemeMode): void {
+export function setThemeMode(mode: ThemeMode, report = true): void {
   themeMode.value = mode
   try {
     uni.setStorageSync(KEY, mode)
@@ -52,6 +53,15 @@ export function setThemeMode(mode: ThemeMode): void {
     /* ignore */
   }
   recomputeTheme()
+  // 偏好跟账号走：换手机后应该还是同一个主题（与 Web 端 users.ui_prefs 同一份）
+  if (report) void savePrefs({ theme: mode }).catch(() => undefined)
+}
+
+/** 登录/启动时应用服务端偏好。传 report=false，别把刚拉下来的值再写回去。 */
+export function applyServerTheme(mode: string | undefined): void {
+  if (mode !== 'system' && mode !== 'light' && mode !== 'dark') return
+  if (mode === themeMode.value) return
+  setThemeMode(mode, false)
 }
 
 export function initTheme(): void {

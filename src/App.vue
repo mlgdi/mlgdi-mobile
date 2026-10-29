@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onLaunch, onShow } from '@dcloudio/uni-app'
+import { onHide, onLaunch, onShow } from '@dcloudio/uni-app'
 import { initTheme, recomputeTheme } from './shared/theme'
 import { askClipboardIntake, handleExternalOpen } from './shared/utils/intake'
+import { startAutoSync, stopAutoSync } from './shared/sync/autoSync'
 
 /**
  * 顶部安全区 `--safe-top` = **顶部真正被系统遮挡的高度**，只算一次、只加一次。
@@ -85,6 +86,13 @@ onShow(() => {
   handleExternalOpen()
   // 剪贴板：切回来时发现像样的内容就弹窗问一句要不要收
   void askClipboardIntake()
+  // 别处改了文章：每 15 秒问一次索引版本号，变了就重拉列表
+  startAutoSync()
+})
+
+onHide(() => {
+  // 后台不轮询，省电也省请求；回来时 onShow 会重新起
+  stopAutoSync()
 })
 </script>
 
