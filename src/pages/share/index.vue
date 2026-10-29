@@ -382,10 +382,10 @@ function back(): void {
 }
 
 /**
- * 分享到微信。
+ * 分享至应用（微信 / QQ / 备忘录…）。
  *
- * 走 **系统分享面板**（UIActivityViewController）：微信在 iOS 上注册了分享扩展，
- * 图片会经过「微信 → 选择聊天」两步发出，效果就是一张卡片图进聊天。
+ * 走 **系统分享面板**（UIActivityViewController）：微信等应用在 iOS 上注册了
+ * 分享扩展，图片会经过「选应用 → 选会话」两步发出，效果就是一张卡片图进聊天。
  * 这是未上架 App 唯一合规的路 —— 直接调微信 SDK 需要开放平台审核过的移动应用
  * （要「已上架信息」和 Universal Links），TrollStore 侧载包过不了审核。
  */
@@ -475,7 +475,7 @@ function save(): void {
              真正的「微信 SDK 分享卡片」需要开放平台审核过的移动应用，侧载包拿不到。 -->
         <view :class="['btn', 'save-btn', imgPath ? '' : 'is-off']" @click="shareToWechat">
           <GIcon name="send" :size="30" :weight="2.2" />
-          <text class="save-t">{{ drawing ? '生成中…' : '分享到微信' }}</text>
+          <text class="save-t">{{ drawing ? '生成中…' : '分享至应用' }}</text>
         </view>
         <view :class="['btn', 'btn-ghost', 'save-btn', imgPath ? '' : 'is-off']" @click="save">
           <text class="save-t">保存到相册</text>
@@ -493,7 +493,7 @@ function save(): void {
       <text class="tip">{{ tip }}</text>
       <!-- #ifdef APP-PLUS -->
       <!-- 提前说清这一步，否则用户会疑惑「怎么先弹了个系统面板」 -->
-      <text class="tip tip-sub">「分享到微信」会先打开系统分享面板，选微信后再挑要发的聊天</text>
+      <text class="tip tip-sub">「分享至应用」会先打开系统分享面板，选微信等应用后再挑要发的聊天</text>
       <!-- #endif -->
     </template>
   </view>
