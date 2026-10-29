@@ -36,6 +36,12 @@ APP_NAME="${APP_NAME:-渡己}"
 VERSION_NAME="${VERSION_NAME:-0.2.1}"
 VERSION_CODE="${VERSION_CODE:-210}"
 RES_DIR="${RES_DIR:-dist/build/app}"
+# 后面要 cd 进 SDK 工程，相对路径会失效（曾因此读不到 manifest.json）。
+# 这里统一转成绝对路径，读 manifest 与 copy 资源都用它。
+case "$RES_DIR" in
+  /*) ;;
+  *) RES_DIR="$(pwd)/$RES_DIR" ;;
+esac
 OUT_DIR="${OUT_DIR:-$PWD/ios-out}"
 WORK="${WORK:-$PWD/.ios-work}"
 
@@ -226,14 +232,19 @@ cd "$HELLO"
 if [ -f Podfile ]; then
   # 裁模块：SDK 默认把二十多个模块全带上，其中 Geolocation-Tencent 是 UTS 版
   # （Swift 6 编译，链接期报 `_swift_coroFrameAlloc` undefined）。
-  # 我们只用 Core + 文件/相册/网络/存储这几块，裁到最小集合既避开这个坑，
-  # 也把包体积压下来。
-  python3 - "$HELLO/Podfile" <<'PY'
+  # 基础集合 = Core + 文件/相册/网络/存储这几块；**再按 manifest 里的
+  # app-plus.modules 追加**（如 Share），否则 JS 侧调得到、原生没编进去，
+  # 真机报「打包时未添加 xxx 模块」而构建完全成功。
+  python3 - "$HELLO/Podfile" "$RES_DIR" <<'PY'
+import json
+import os
 import re
 import sys
 
-path = sys.argv[1]
+path, res_dir = sys.argv[1], sys.argv[2]
 src = open(path, encoding="utf-8").read()
+
+# 这些 subspec 是无论如何都要的（运行时底座与现有功能）
 keep = [
     "Core",          # 运行时本体，必需
     "File",          # 文件系统（选 .md / plus.io）
@@ -244,6 +255,70 @@ keep = [
     "Log",           # 日志，排障要用
     "Canvas",        # 视图层兜底（mp-html 渲染富文本）
 ]
+# manifest.json 里启用的原生模块 -> Podfile subspec 名。
+# 只列「模块名与 subspec 名不同 / 我们真会用到」的几项；其余同名不必映射。
+MODULE_TO_POD = {
+    "Camera": "CameraGallery",
+    "Gallery": "CameraGallery",
+    "Share": "Share",
+    "Payment": "Payment",
+    "Push": "Push",
+    "Bluetooth": "Bluetooth",
+    "Geolocation": "Geolocation",
+}
+
+manifest_path = os.path.join(res_dir, "manifest.json")
+if not os.path.isfile(manifest_path):
+    sys.exit("找不到 %s：无法按 manifest 追加原生模块（RES_DIR 是否指向 dist/build/app？）" % manifest_path)
+
+with open(manifest_path, encoding="utf-8") as fh:
+    cfg = json.load(fh)
+
+# 两个位置都要看：
+#   src/manifest.json（开发态）        -> app-plus.modules
+#   dist/build/app/manifest.json（构建产物）-> permissions
+# 只读其中一处会漏，表现就是「模块没编进去」但脚本一路绿灯。
+module_names = set()
+module_names.update((cfg.get("app-plus") or {}).get("modules") or {})
+module_names.update(cfg.get("permissions") or {})
+
+wanted = []
+for name in sorted(module_names):
+    pod = MODULE_TO_POD.get(name)
+    if pod and pod not in keep and pod not in wanted:
+        wanted.append(pod)
+
+if wanted:
+    keep = keep + wanted
+    print("manifest 追加的 subspec:", ", ".join(wanted))
+
+# 校验：Podfile 里不存在的名字会让 pod install 成功但原生缺模块 ——
+# 真机报「打包时未添加 xxx 模块」。这里提前失败并列出可选项。
+declared = re.search(r"uniapp_subspecs = \[(.*?)\]", src, re.S)
+available = re.findall(r"['\"]([^'\"]+)['\"]", declared.group(1)) if declared else []
+
+
+def resolve(name):
+    """SDK 换版本时 subspec 名可能大小写不同或带前缀（Share / UniShare）。
+    精确 -> 忽略大小写 -> 含关键字，三级降级，尽量避免一次白跑 12 分钟 CI。"""
+    if not available or name in available:
+        return name
+    for cand in available:
+        if cand.lower() == name.lower():
+            return cand
+    for cand in available:
+        if name.lower() in cand.lower():
+            return cand
+    return name
+
+
+keep = [resolve(name) for name in keep]
+missing = [name for name in keep if available and name not in available]
+if missing:
+    sys.exit(
+        "Podfile 没有这些 subspec: %s\n可选: %s" % (missing, ", ".join(available))
+    )
+
 block = "uniapp_subspecs = [\n" + "".join(f"  '{name}',\n" for name in keep) + "]"
 new, count = re.subn(r"uniapp_subspecs = \[.*?\n\]", block, src, count=1, flags=re.S)
 if not count:
