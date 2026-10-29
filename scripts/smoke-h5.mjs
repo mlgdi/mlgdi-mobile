@@ -263,20 +263,23 @@ try {
     })
     await page.waitForTimeout(300)
 
-    // 分享图：canvas 导出必须真的出图（App 端曾一直停在「正在生成」）
+    // 分享图：现在是独立页面 + 服务端渲染的 PNG
+    // （App 端 canvas 是原生组件，塞在浮层里会整块空白，所以整页 + 后端出图）
     await page.locator('.gtop .more-btn').click()
     await page.waitForTimeout(300)
     await page.locator('.menu-item', { hasText: '分享' }).click()
     await page.waitForTimeout(600)
     await page.locator('.srow', { hasText: '生成图片' }).click()
-    await page.waitForTimeout(3000)
-    const posterW = await page.evaluate(() => {
-      const im = document.querySelector('.pimg img')
-      return im ? im.naturalWidth : 0
+    await page.waitForTimeout(3500)
+    const poster = await page.evaluate(() => {
+      const im = document.querySelector('.shot img')
+      return { url: location.hash, w: im ? im.naturalWidth : 0, h: im ? im.naturalHeight : 0 }
     })
-    log('分享图能生成', posterW > 0, `宽 ${posterW}px`)
-    await page.getByText('关闭', { exact: true }).first().click().catch(() => {})
-    await page.waitForTimeout(400)
+    log('分享图页已打开', poster.url.includes('/pages/share/index'), poster.url.split('?')[0])
+    log('分享图能生成', poster.w > 0, `${poster.w}×${poster.h}`)
+    await shot(page, '04-share-card')
+    await page.locator('.gtop .lead').first().click().catch(() => {})
+    await page.waitForTimeout(1200)
 
     await shot(page, '04-doc')
   }

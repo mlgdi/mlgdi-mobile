@@ -25,6 +25,13 @@
       }
     },
     {
+      "path": "pages/share/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "分享图"
+      }
+    },
+    {
       "path": "pages/inbox/index",
       "style": {
         "navigationStyle": "custom",

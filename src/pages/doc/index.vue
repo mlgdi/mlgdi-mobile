@@ -200,18 +200,7 @@
       :url="shareUrl"
       :is-public="shareIsPublic"
       @close="shareOpen = false"
-      @poster="posterOpen = true"
-    />
-
-    <GSharePoster
-      :open="posterOpen"
-      :title="doc?.title || ''"
-      :url="shareUrl"
-      :column-name="col?.name || ''"
-      :column-color="col?.main || '#0066cc'"
-      :date-text="doc ? formatDate(doc.updated_at || doc.created_at) : ''"
-      :excerpt="doc?.excerpt || ''"
-      @close="posterOpen = false"
+      @poster="openPoster"
     />
 
     <!-- 归档 / 移动：底部抽屉选目标目录，选完立刻执行 -->
@@ -233,7 +222,6 @@ import GTopBar from '../../shared/components/GTopBar.vue'
 import GIcon from '../../shared/components/GIcon.vue'
 import GDirSheet from '../../shared/components/GDirSheet.vue'
 import GShareSheet from '../../shared/components/GShareSheet.vue'
-import GSharePoster from '../../shared/components/GSharePoster.vue'
 import {
   archiveDoc,
   doc as apiDoc,
@@ -249,6 +237,8 @@ import { capabilities } from '../../shared/capabilities'
 import { useAuthStore } from '../../shared/store/auth'
 import { useSiteStore } from '../../shared/store/site'
 import { subLevels } from '../../shared/utils/scope'
+import { isPublicShare, shareUrlOf } from '../../shared/utils/share'
+import { formatDate } from '../../shared/utils/date'
 import { getBaseUrl } from '../../shared/config/server'
 
 /** 编辑/删除/归档：既要有平台能力，也要真的登录了（游客能读不能写） */
@@ -406,17 +396,6 @@ const imageList = computed<string[]>(() => {
   return out
 })
 
-function formatDate(raw: string): string {
-  if (!raw) return ''
-  const d = new Date(raw.replace(' ', 'T'))
-  if (Number.isNaN(d.getTime())) return raw.slice(0, 10)
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mi = String(d.getMinutes()).padStart(2, '0')
-  return `${d.getFullYear()}-${mm}-${dd} ${hh}:${mi}`
-}
-
 /** 引用上下文里带着 `[[标题]]` 原文，展示时剥掉方括号更干净 */
 function cleanContext(raw: string): string {
   return (raw || '')
@@ -513,23 +492,21 @@ function toggleTheme(): void {
  * 编码后整条都是 `%E6%9D%A1…` 这种 ASCII，粘贴到哪里都不会被截断，
  * 浏览器打开时自动解码，后端路由不受影响。
  */
-const shareUrl = computed(() => {
-  const d = doc.value
-  if (!d) return ''
-  const base = getBaseUrl().replace(/\/$/, '')
-  if (d.slug && d.visibility === 'public' && d.status === 'published') {
-    return encodeURI(`${base}/p/${d.slug}`)
-  }
-  return `${base}/doc/${d.id}`
-})
-
-const shareIsPublic = computed(() => {
-  const d = doc.value
-  return Boolean(d && d.slug && d.visibility === 'public' && d.status === 'published')
-})
+const shareUrl = computed(() => shareUrlOf(doc.value, getBaseUrl()))
+const shareIsPublic = computed(() => isPublicShare(doc.value))
 
 const shareOpen = ref(false)
-const posterOpen = ref(false)
+/**
+ * 「生成图片」开一个独立页面来画。
+ *
+ * App 端 `<canvas>` 是原生组件，塞在浮层里（fixed + 圆角/overflow 裁剪）
+ * 会整块空白：不报错、draw 像没发生、也导不出图。画布只能待在
+ * 正常文档流里 —— 所以做成页面，而不是弹层里的一个组件。
+ */
+function openPoster(): void {
+  if (!doc.value) return
+  uni.navigateTo({ url: `/pages/share/index?id=${encodeURIComponent(doc.value.id)}` })
+}
 
 function shareDoc(): void {
   if (!doc.value) return

@@ -1,5 +1,5 @@
 /** 内容接口。影响端范围：全端。 */
-import { request } from './client'
+import { download, request } from './client'
 
 export interface DocBrief {
   id: string
@@ -162,6 +162,14 @@ export function publishDoc(
     query: { id },
     body: { status: opts.status || 'published', visibility: opts.visibility || 'public', base_version: opts.base_version ?? null },
   })
+}
+
+/**
+ * 分享卡片：由服务端画好 PNG 返回（App 端 canvas 是原生组件，浮层里会空白）。
+ * 失败时抛 ApiError（例如服务器没装中文字体），调用方退回本机绘制。
+ */
+export function shareCard(id: string, column: string, color: string): Promise<string> {
+  return download({ path: '/api/v1/notes/share-card', query: { id, column, color } })
 }
 
 export function deleteDoc(id: string): Promise<{ ok?: boolean }> {

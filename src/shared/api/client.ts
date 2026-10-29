@@ -73,6 +73,36 @@ function send(opts: RequestOptions): Promise<{ status: number; data: any }> {
   })
 }
 
+/**
+ * 下载二进制资源（图片）到本地临时文件。
+ *
+ * `<image src>` 带不了 Authorization 头，所以先用带鉴权的请求把图取回来，
+ * 拿到 tempFilePath 再交给 `<image>` 显示 / `saveImageToPhotosAlbum` 保存。
+ */
+export function download(opts: { path: string; query?: Query; timeout?: number }): Promise<string> {
+  const session = readSession()
+  const header: Record<string, string> = {}
+  if (session.token) header.Authorization = `Bearer ${session.token}`
+  if (session.deviceSecret) header['X-Device-Key'] = session.deviceSecret
+
+  return new Promise((resolve, reject) => {
+    uni.downloadFile({
+      url: buildUrl({ path: opts.path, query: opts.query }),
+      header,
+      timeout: opts.timeout ?? 20000,
+      success: (res: any) => {
+        if (res.statusCode === 200 && res.tempFilePath) {
+          resolve(res.tempFilePath)
+          return
+        }
+        reject(new ApiError(res.statusCode || 0, 'DOWNLOAD_FAILED', '图片生成失败'))
+      },
+      fail: (err: any) =>
+        reject(new ApiError(0, 'NETWORK_ERROR', (err && err.errMsg) || '网络请求失败')),
+    })
+  })
+}
+
 function toApiError(status: number, data: any): ApiError {
   const body = data && typeof data === 'object' ? data : {}
   const code = String(body.code || `HTTP_${status}`)
