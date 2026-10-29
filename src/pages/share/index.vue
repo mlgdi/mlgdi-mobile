@@ -34,8 +34,8 @@ const TITLE_TOP = 66
 const docId = ref('')
 const doc = ref<DocDetail | null>(null)
 const error = ref('')
-/** 服务端没有分享图接口（后端版本太旧）—— 与「画不出来」要分开说 */
-const serverMissing = ref(false)
+/** 服务端出错时的说明。有值就不再画 canvas：空白画布只会让人以为「又坏了」 */
+const serverError = ref<{ title: string; desc: string } | null>(null)
 
 const h = ref(430)
 const imgPath = ref('')
@@ -308,6 +308,9 @@ async function load(): Promise<void> {
     error.value = '缺少文档参数'
     return
   }
+  serverError.value = null
+  failed.value = ''
+  imgPath.value = ''
   void site.load()
   try {
     doc.value = await apiDoc(docId.value)
@@ -327,17 +330,29 @@ async function load(): Promise<void> {
     drawing.value = false
     return
   } catch (e) {
+    const status = Number((e as { status?: number })?.status || 0)
+
     /*
-     * 404 = 服务端没有这个接口（后端还是 1.74 或更早）。这时**不要**退回本机
-     * canvas：那条路在老机型上画出来就是一片空白，看起来像「又坏了」，
-     * 实际原因是服务器版本太旧。直接把话说清楚。
+     * 只有「连不上服务器」（status 0）才退回本机 canvas —— 那种情况服务端帮不上忙。
+     * 其余一律把服务端的问题说清楚：
+     * 空白画布会让人以为「又坏了」，而真正原因（版本太旧 / 缺依赖 / 缺字体）
+     * 只写在服务端日志里，用户在手机上永远看不到。
      */
-    if ((e as { status?: number })?.status === 404) {
-      serverMissing.value = true
+    if (status !== 0) {
+      serverError.value =
+        status === 404
+          ? {
+              title: '服务端还没有分享图接口',
+              desc: '把服务器上的程序更新到 1.75 及以上（分享图改由服务端渲染）后重试。当前仍可以用「复制链接」分享这篇。',
+            }
+          : {
+              title: `服务端生成失败（${status}）`,
+              desc: '原因在服务器日志里（缺依赖 / 缺字体都会写明）。修好后点重试即可，文章本身不受影响。',
+            }
       drawing.value = false
       return
     }
-    /* 其它错误（缺字体、网络）：落到本机绘制，还能抢一次 */
+    /* 网络不通：本机 canvas 兜底，能抢一次是一次 */
   }
 
   await nextTick()
@@ -356,6 +371,11 @@ onReady(() => {
   }
   void load()
 })
+
+/** 重试：从服务端重新拉一次图（不是重画本机 canvas） */
+function reload(): void {
+  void load()
+}
 
 function back(): void {
   uni.navigateBack()
@@ -393,13 +413,11 @@ function save(): void {
 
     <view v-if="error" class="hint">{{ error }}</view>
 
-    <!-- 服务端版本太旧：本机 canvas 兜底只会画出空白，所以不给它机会 -->
-    <view v-else-if="serverMissing" class="hint">
-      <text class="hint-t">服务端还没有分享图接口</text>
-      <text class="hint-s">
-        把服务器上的程序更新到 1.75 及以上（分享图改由服务端渲染），再回来重试。
-        当前版本仍可以用「复制链接」分享这篇。
-      </text>
+    <!-- 服务端的问题就说服务端：本机 canvas 兜底只会画出空白，看着更像坏了 -->
+    <view v-else-if="serverError" class="hint">
+      <text class="hint-t">{{ serverError.title }}</text>
+      <text class="hint-s">{{ serverError.desc }}</text>
+      <view class="hint-retry" @click="reload">重试</view>
     </view>
 
     <template v-else>
@@ -508,5 +526,16 @@ function save(): void {
 .hint-s {
   display: block;
   line-height: 1.7;
+}
+
+.hint-retry {
+  display: inline-block;
+  margin-top: 18px;
+  padding: 10px 26px;
+  border-radius: var(--r-full);
+  background-color: var(--surface-2);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 600;
 }
 </style>
