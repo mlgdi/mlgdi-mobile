@@ -169,7 +169,13 @@ export function publishDoc(
  * 失败时抛 ApiError（例如服务器没装中文字体），调用方退回本机绘制。
  */
 export function shareCard(id: string, column: string, color: string): Promise<string> {
-  return download({ path: '/api/v1/notes/share-card', query: { id, column, color } })
+  // 超时给足：服务端首次部署可能要现下中文字体（后台预热一般已经下好，
+  // 但万一首次就点分享，默认 20s 会误判成网络错误）
+  return download({
+    path: '/api/v1/notes/share-card',
+    query: { id, column, color },
+    timeout: 60000,
+  })
 }
 
 export function deleteDoc(id: string): Promise<{ ok?: boolean }> {
