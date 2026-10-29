@@ -381,6 +381,35 @@ function back(): void {
   uni.navigateBack()
 }
 
+/**
+ * 分享到微信。
+ *
+ * 走 **系统分享面板**（UIActivityViewController）：微信在 iOS 上注册了分享扩展，
+ * 图片会经过「微信 → 选择聊天」两步发出，效果就是一张卡片图进聊天。
+ * 这是未上架 App 唯一合规的路 —— 直接调微信 SDK 需要开放平台审核过的移动应用
+ * （要「已上架信息」和 Universal Links），TrollStore 侧载包过不了审核。
+ */
+function shareToWechat(): void {
+  if (!imgPath.value) return
+  // #ifdef APP-PLUS
+  const plusAny = (globalThis as any).plus
+  if (!plusAny?.share?.sendWithSystem) {
+    uni.showToast({ title: '当前环境不支持系统分享', icon: 'none' })
+    return
+  }
+  plusAny.share.sendWithSystem(
+    { type: 'image', pictures: [imgPath.value] },
+    () => {
+      /* 面板关闭即回调，不区分是否真的发出去 */
+    },
+    () => {
+      // 常见原因：没装微信、微信扩展不接受该类型、系统面板被取消
+      uni.showToast({ title: '没调起分享面板，可先保存到相册再发', icon: 'none' })
+    },
+  )
+  // #endif
+}
+
 function save(): void {
   if (!imgPath.value) return
   // #ifdef APP-PLUS
@@ -441,14 +470,31 @@ function save(): void {
       </view>
 
       <view class="acts">
+        <!-- #ifdef APP-PLUS -->
+        <!-- 走系统分享面板：iOS 上微信作为分享扩展出现，选它再挑聊天即可发送图片。
+             真正的「微信 SDK 分享卡片」需要开放平台审核过的移动应用，侧载包拿不到。 -->
+        <view :class="['btn', 'save-btn', imgPath ? '' : 'is-off']" @click="shareToWechat">
+          <GIcon name="send" :size="30" :weight="2.2" />
+          <text class="save-t">{{ drawing ? '生成中…' : '分享到微信' }}</text>
+        </view>
+        <view :class="['btn', 'btn-ghost', 'save-btn', imgPath ? '' : 'is-off']" @click="save">
+          <text class="save-t">保存到相册</text>
+        </view>
+        <!-- #endif -->
+        <!-- #ifdef H5 -->
         <view :class="['btn', 'save-btn', imgPath ? '' : 'is-off']" @click="save">
           <GIcon name="image" :size="30" :weight="2.2" />
-          <text class="save-t">{{ drawing ? '生成中…' : '保存到相册' }}</text>
+          <text class="save-t">{{ drawing ? '生成中…' : '下载图片' }}</text>
         </view>
+        <!-- #endif -->
         <view v-if="failed" class="btn btn-ghost retry-btn" @click="generate">重试</view>
       </view>
 
       <text class="tip">{{ tip }}</text>
+      <!-- #ifdef APP-PLUS -->
+      <!-- 提前说清这一步，否则用户会疑惑「怎么先弹了个系统面板」 -->
+      <text class="tip tip-sub">「分享到微信」会先打开系统分享面板，选微信后再挑要发的聊天</text>
+      <!-- #endif -->
     </template>
   </view>
 </template>
@@ -506,6 +552,12 @@ function save(): void {
   line-height: 1.6;
   color: var(--faint);
   text-align: center;
+}
+
+.tip-sub {
+  padding-top: 0;
+  color: var(--faint);
+  opacity: 0.8;
 }
 
 .hint {
