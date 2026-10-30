@@ -512,11 +512,18 @@ async function saveMarkdown(): Promise<void> {
   // 等抽屉收起再做：面板从 rootViewController 弹出，抽屉还在做 transform
   // 动画时 present，iOS 可能直接忽略（点了没反应就是这个）
   await new Promise((resolve) => setTimeout(resolve, 320))
+  // 立刻给反馈：写文件最快几十毫秒，但要是在这一步卡住，
+  // 没有 loading 的话用户看到的就是「点了完全没反应」
+  uni.showLoading({ title: '准备文件…', mask: true })
   try {
-    const how = await saveMarkdownFile(d.title, d.body)
+    const how = await saveMarkdownFile(d.title, d.body, {
+      onFileReady: () => uni.hideLoading(),
+    })
+    uni.hideLoading()
     if (how === 'downloaded') uni.showToast({ title: '已下载 .md 文件', icon: 'none' })
   } catch (e) {
-    uni.showToast({ title: (e as Error)?.message || '分享失败', icon: 'none' })
+    uni.hideLoading()
+    uni.showToast({ title: (e as Error)?.message || '保存失败', icon: 'none' })
   }
 }
 

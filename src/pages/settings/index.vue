@@ -76,6 +76,20 @@
         </view>
       </view>
 
+      <!-- 手动入口：自动跳转依赖「系统把文件拷进 Inbox」，
+           万一某台机器上没触发，这里至少能自己进导入页看看到底有没有文件 -->
+      <view v-if="auth.logged" class="section">
+        <view class="card">
+          <view class="cell" @click="toImportDoc">
+            <view class="cell-main">
+              <text class="cell-title">导入 Markdown</text>
+              <text class="cell-sub muted">处理从「文件」App 分享进来的 .md</text>
+            </view>
+            <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
+          </view>
+        </view>
+      </view>
+
       <!-- 游客没有账号可管，顶部已经有「登录」入口，这里整行隐掉 -->
       <view v-if="auth.logged" class="section">
         <view class="card">
@@ -1408,6 +1422,10 @@ function logout(): void {
       uni.reLaunch({ url: '/pages/login/index' })
     },
   })
+}
+
+function toImportDoc(): void {
+  uni.navigateTo({ url: '/pages/import-doc/index' })
 }
 
 function toLogin(): void {

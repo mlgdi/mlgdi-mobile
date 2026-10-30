@@ -32,56 +32,125 @@ export function markdownText(body: string): string {
   return (body || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n')
 }
 
-/** 写到 `_doc/` 并返回绝对路径（`/var/mobile/.../Documents/xxx.md`） */
-function writeDocFile(name: string, text: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const plusAny = (globalThis as any).plus
-    if (!plusAny?.io) {
-      reject(new Error('当前环境不支持写入文件'))
-      return
-    }
-    plusAny.io.requestFileSystem(
-      plusAny.io.PRIVATE_DOC,
-      (fs: any) => {
-        // 先删再建，而不是 truncate 后重写：
-        // 新建的空文件上 truncate(0) 在 iOS 端有时不触发 onwrite，回调就永远不来
-        // （表现是点了分享什么都没发生）；而同名文件若不清空，短内容写进去会把
-        // 上一次的字留在尾部。删了重建把这两个问题一起绕开。
-        const create = (): void => {
-          fs.root.getFile(
-            name,
-            { create: true },
-            (entry: any) => {
-              entry.createWriter(
-                (writer: any) => {
-                  writer.onwrite = () => {
-                    const raw = String(entry.fullPath || '')
-                    // fullPath 通常已是绝对路径；不是时才需要转换
-                    const abs = raw.startsWith('/')
-                      ? raw
-                      : String(plusAny.io.convertLocalFileURL(raw) || raw).replace('file://', '')
-                    resolve(abs)
-                  }
-                  writer.onerror = () => reject(new Error('写入 Markdown 失败'))
-                  writer.write(text)
-                },
-                () => reject(new Error('无法创建文件')),
-              )
-            },
-            () => reject(new Error('无法创建文件')),
-          )
-        }
-
-        fs.root.getFile(
-          name,
-          { create: false },
-          (old: any) => old.remove(create, create),
-          create, // 不存在才算正常，直接建
-        )
+/** 给任何一步加超时：plus.io 的回调偶尔不回来，不能让它把整个流程挂住 */
+function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let done = false
+    const timer = setTimeout(() => {
+      if (done) return
+      done = true
+      reject(new Error(message))
+    }, ms)
+    p.then(
+      (v) => {
+        if (done) return
+        done = true
+        clearTimeout(timer)
+        resolve(v)
       },
-      () => reject(new Error('无法访问应用目录')),
+      (e) => {
+        if (done) return
+        done = true
+        clearTimeout(timer)
+        reject(e)
+      },
     )
   })
+}
+
+/** uni 的本地路径（`_doc/x.md`）→ 绝对路径，文件选择器只认绝对路径 */
+function toAbsolute(local: string): string {
+  const plusAny = (globalThis as any).plus
+  try {
+    const url = String(plusAny?.io?.convertLocalFileURL?.(local) || local)
+    return url.replace(/^file:\/\//, '')
+  } catch {
+    return local
+  }
+}
+
+/**
+ * 写 `_doc/<name>`，返回绝对路径。
+ *
+ * 优先 `uni.getFileSystemManager().writeFile`：它是 uni 封装的 fs 接口，
+ * 成功/失败回调用法明确，`encoding: 'utf8'` 也直白。**plus.io 那套
+ * （requestFileSystem → getFile → createWriter）在 iOS 上有回调不回来的情况 ——
+ * 表现就是你看到的「点了下载毫无反应」**：既没报错也没面板，Promise 永远挂着。
+ * 所以在它下面还加了一层超时，任何一步不回来都会在 8 秒后变成可读的错误。
+ */
+function writeDocFile(name: string, text: string): Promise<string> {
+  const local = `_doc/${name}`
+
+  const viaFsm = (): Promise<void> => {
+    const fsm: any = (uni as any).getFileSystemManager?.()
+    if (!fsm?.writeFile) return Promise.reject(new Error('no-fsm'))
+    return new Promise<void>((resolve, reject) => {
+      fsm.writeFile({
+        filePath: local,
+        data: text,
+        encoding: 'utf8',
+        success: () => resolve(),
+        fail: (e: any) => reject(new Error(String(e?.errMsg || '写入失败'))),
+      })
+    })
+  }
+
+  const viaPlusIO = (): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const plusAny = (globalThis as any).plus
+      if (!plusAny?.io) {
+        reject(new Error('当前环境不支持写入文件'))
+        return
+      }
+      plusAny.io.requestFileSystem(
+        plusAny.io.PRIVATE_DOC,
+        (fs: any) => {
+          // 先删再建，而不是 truncate 后重写：新建的空文件上 truncate(0)
+          // 有时不触发 onwrite；而同名文件不清空，短内容会把上一次的字留在尾部。
+          const create = (): void => {
+            fs.root.getFile(
+              name,
+              { create: true },
+              (entry: any) => {
+                entry.createWriter(
+                  (writer: any) => {
+                    writer.onwrite = () => {
+                      const raw = String(entry.fullPath || '')
+                      resolve(raw.startsWith('/') ? raw : toAbsolute(raw))
+                    }
+                    writer.onerror = () => reject(new Error('写入 Markdown 失败'))
+                    writer.write(text)
+                  },
+                  () => reject(new Error('无法创建文件')),
+                )
+              },
+              () => reject(new Error('无法创建文件')),
+            )
+          }
+
+          fs.root.getFile(
+            name,
+            { create: false },
+            (old: any) => old.remove(create, create),
+            create, // 不存在才算正常，直接建
+          )
+        },
+        () => reject(new Error('无法访问应用目录')),
+      )
+    })
+  }
+
+  return (async () => {
+    try {
+      await withTimeout(viaFsm(), 8000, '写入文件超时，请重试')
+      return toAbsolute(local)
+    } catch (e) {
+      // FileSystemManager 不可用才退回 plus.io；它自身失败（含超时）直接上抛，
+      // 不要用第二套大概率同样卡住的实现再等 8 秒
+      if (String((e as Error)?.message || '') !== 'no-fsm') throw e
+    }
+    return withTimeout(viaPlusIO(), 8000, '写入文件超时，请重试')
+  })()
 }
 
 /**
@@ -205,6 +274,7 @@ function downloadBlob(name: string, text: string): void {
 export async function saveMarkdownFile(
   title: string,
   body: string,
+  opts: { onFileReady?: () => void } = {},
 ): Promise<'picker' | 'downloaded'> {
   const name = markdownFileName(title)
   const text = markdownText(body)
@@ -218,6 +288,10 @@ export async function saveMarkdownFile(
     throw new Error('当前平台暂不支持保存文件')
   }
   const abs = await writeDocFile(name, text)
+  // 文件落地了：让调用方先收掉 loading，再弹系统选择器。
+  // 系统选择器是 modal，loading 压在它下面会一直转，看起来像卡死。
+  opts.onFileReady?.()
+  await new Promise((resolve) => setTimeout(resolve, 60))
   try {
     presentFilePicker(abs)
   } catch {

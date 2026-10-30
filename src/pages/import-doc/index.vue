@@ -16,10 +16,12 @@ import GIcon from '../../shared/components/GIcon.vue'
 import GDirSheet from '../../shared/components/GDirSheet.vue'
 import { resolvedTheme } from '../../shared/theme'
 import {
+  inboxDiagnostics,
   listInboxDocs,
   removeInboxDoc,
   titleFromName,
   type InboxDoc,
+  type InboxDiagnostics,
 } from '../../shared/utils/inbox-import'
 import { capture } from '../../shared/api/inbox'
 import { createDoc } from '../../shared/api/notes'
@@ -30,6 +32,8 @@ const notes = useNotesStore()
 
 /** 待处理队列：处理完一篇就出队，全部处理完才返回 */
 const queue = ref<InboxDoc[]>([])
+/** 空态时显示的目录实况，用来区分「系统没拷进来」和「拷进来了但读不出」 */
+const diag = ref<InboxDiagnostics | null>(null)
 const loading = ref(true)
 const busy = ref(false)
 const dirOpen = ref(false)
@@ -80,6 +84,11 @@ async function load(): Promise<void> {
     queue.value = await listInboxDocs()
   } finally {
     loading.value = false
+  }
+  // 队列空了才需要诊断信息：没有文件时告诉用户「这里确实没有东西」，
+  // 而不是一句「没有待导入的文件」让人不知道是功能坏了还是真没有
+  if (!queue.value.length) {
+    diag.value = await inboxDiagnostics().catch(() => null)
   }
 }
 
@@ -161,6 +170,12 @@ function back(): void {
 
       <view v-else-if="!current" class="hint">
         <text class="muted">没有待导入的文件</text>
+        <text v-if="diag" class="diag">
+          {{ diag.dir }}：{{ diag.total }} 个文件{{ diag.total && !diag.usable ? '（都不是 md / txt）' : '' }}
+        </text>
+        <text class="diag-h">
+          从「文件」App 里长按 .md → 共享 → 渡己，文件会出现在这里
+        </text>
       </view>
 
       <template v-else>
@@ -220,7 +235,24 @@ function back(): void {
 
 .hint {
   padding: 120rpx 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16rpx;
   text-align: center;
+}
+
+.diag {
+  font-size: var(--fs-xs);
+  color: var(--faint);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.diag-h {
+  max-width: 520rpx;
+  font-size: var(--fs-xs);
+  line-height: 1.7;
+  color: var(--faint);
 }
 
 .fcard {

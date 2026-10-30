@@ -139,6 +139,73 @@ export function titleFromName(name: string): string {
   return name.replace(TEXT_EXT, '').trim() || '未命名'
 }
 
+/**
+ * 等 `plus.io` 就绪。
+ *
+ * 冷启动被文档打开拉起时，`App.onShow` 有可能早于 plus 初始化 —— 那时
+ * `plus.io` 是 undefined，扫描直接返回空数组，看起来就像「什么都没发生」。
+ * 这是「能跳转但 App 没反应」最常见的原因。
+ */
+function whenPlusReady(timeout = 3000): Promise<void> {
+  return new Promise((resolve) => {
+    if ((globalThis as any).plus?.io) {
+      resolve()
+      return
+    }
+    let done = false
+    const finish = (): void => {
+      if (done) return
+      done = true
+      resolve()
+    }
+    try {
+      document.addEventListener('plusready', finish, false)
+    } catch {
+      /* 非 H5 环境忽略 */
+    }
+    const started = Date.now()
+    const timer = setInterval(() => {
+      if ((globalThis as any).plus?.io || Date.now() - started > timeout) {
+        clearInterval(timer)
+        finish()
+      }
+    }, 150)
+  })
+}
+
+/** Inbox 目录，导入页在空态里显示它，便于判断「系统有没有把文件拷进来」 */
+export const INBOX_PATH = INBOX_DIR
+
+export interface InboxDiagnostics {
+  dir: string
+  /** 目录里的文件总数（含非文本） */
+  total: number
+  /** 其中能被导入的数量 */
+  usable: number
+  names: string[]
+}
+
+/**
+ * 诊断用：Inbox 里到底有什么。
+ *
+ * 「跳转到 App 后没有反应」只有两种可能 —— 系统没把文件拷进来（total=0），
+ * 或者拷进来了但不是文本（total>0 / usable=0）。把数字摆出来就不用猜了。
+ */
+export async function inboxDiagnostics(): Promise<InboxDiagnostics> {
+  // #ifdef APP-PLUS
+  await whenPlusReady()
+  const entries = await listEntries(INBOX_DIR)
+  const names = entries.filter((e) => e?.isFile).map((e) => String(e.name || ''))
+  return {
+    dir: INBOX_DIR,
+    total: names.length,
+    usable: names.filter((n) => TEXT_EXT.test(n)).length,
+    names,
+  }
+  // #endif
+  return { dir: INBOX_DIR, total: 0, usable: 0, names: [] }
+}
+
 let lastCheck = 0
 
 /**
@@ -169,9 +236,23 @@ export function checkInboxImport(hasSession: boolean): void {
     /* 取页面栈失败就不做这层判断 */
   }
 
-  void listInboxDocs().then((docs) => {
-    if (!docs.length) return
-    uni.navigateTo({ url: '/pages/import-doc/index' })
-  })
+  void (async () => {
+    await whenPlusReady()
+    // 冷启动时文件可能刚被系统拷进来，扫两轮：立刻一次、1.2s 后再一次
+    for (let round = 0; round < 3; round += 1) {
+      const docs = await listInboxDocs()
+      if (docs.length) {
+        uni.navigateTo({
+          url: '/pages/import-doc/index',
+          // 冷启动时页面栈可能还没就绪，失败就等一会儿再来
+          fail: () => {
+            setTimeout(() => uni.navigateTo({ url: '/pages/import-doc/index' }), 600)
+          },
+        })
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1200))
+    }
+  })()
   // #endif
 }
