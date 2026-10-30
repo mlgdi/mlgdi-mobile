@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /**
- * 分享抽屉：目前只给两条路 —— 复制链接、生成分享图（带二维码）。
+ * 分享抽屉：三条路 —— 复制链接、生成分享图（带二维码）、发 `.md` 文件。
  *
- * 为什么不做「系统分享面板」：iOS 的系统面板里能通往的地方大多是半成品
- * （微信要 JS-SDK 卡片、朋友圈没有接口），真正可用的其实是「把链接发给对方」
- * 和「发一张带二维码的图」。先把这两条做扎实，其余渠道之后再补。
+ * 前两条针对「发给别人看」；第三条是把原文交给对方（同行、协作者、存档），
+ * 走系统分享面板，由用户自己选微信 / QQ / 邮件 / 存储到文件。
+ * 不做微信 SDK 卡片：那需要开放平台审过的移动应用，侧载包拿不到。
  */
 import { ref, watch } from 'vue'
 import GIcon from './GIcon.vue'
@@ -23,7 +23,7 @@ const props = withDefaults(
   { title: '', isPublic: true },
 )
 
-const emit = defineEmits<{ (e: 'close'): void; (e: 'poster'): void }>()
+const emit = defineEmits<{ (e: 'close'): void; (e: 'poster'): void; (e: 'file'): void }>()
 
 const copied = ref(false)
 
@@ -55,6 +55,11 @@ function copyLink(): void {
 function makePoster(): void {
   emit('close')
   emit('poster')
+}
+
+function sendFile(): void {
+  emit('close')
+  emit('file')
 }
 </script>
 
@@ -90,6 +95,22 @@ function makePoster(): void {
         <view class="smain">
           <text class="srow-t">生成图片</text>
           <text class="srow-h">带标题与二维码，可直接发出去</text>
+        </view>
+      </view>
+
+      <view class="sdivider" />
+
+      <view class="srow" @click="sendFile">
+        <view class="sico"><GIcon name="doc" :size="34" :weight="2" /></view>
+        <view class="smain">
+          <!-- #ifdef APP-PLUS -->
+          <text class="srow-t">分享 Markdown 文件</text>
+          <text class="srow-h">以 .md 原文件发送，保留排版</text>
+          <!-- #endif -->
+          <!-- #ifdef H5 -->
+          <text class="srow-t">下载 Markdown 文件</text>
+          <text class="srow-h">保存为 .md 文件</text>
+          <!-- #endif -->
         </view>
       </view>
     </view>

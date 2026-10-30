@@ -10,6 +10,8 @@
  *   node scripts/smoke-h5.mjs
  */
 import { chromium } from 'playwright'
+import fs from 'node:fs'
+import path from 'node:path'
 
 const APP = process.env.APP_URL || 'http://127.0.0.1:5173'
 const API = process.env.API_URL || 'http://192.168.1.88:8010'
@@ -265,6 +267,33 @@ try {
 
     // 分享图：现在是独立页面 + 服务端渲染的 PNG
     // （App 端 canvas 是原生组件，塞在浮层里会整块空白，所以整页 + 后端出图）
+    await page.locator('.gtop .more-btn').click()
+    await page.waitForTimeout(300)
+    await page.locator('.menu-item', { hasText: '分享' }).click()
+    await page.waitForTimeout(600)
+
+    // 抽屉三条路：复制链接 / 生成图片 / 下载 Markdown（App 端为「分享」）
+    log('分享抽屉三项齐全', (await page.locator('.srow').count()) === 3)
+
+    // 下载 .md：文件名要用标题、内容不含 front-matter（发出去给别人看的）
+    const [mdFile] = await Promise.all([
+      page.waitForEvent('download', { timeout: 15000 }).catch(() => null),
+      page.locator('.srow', { hasText: 'Markdown' }).click(),
+    ])
+    let mdOk = false
+    if (mdFile) {
+      const mdName = mdFile.suggestedFilename()
+      const mdPath = path.join('shots', `dl-${Date.now()}.md`)
+      await mdFile.saveAs(mdPath)
+      const mdText = fs.readFileSync(mdPath, 'utf8')
+      mdOk = mdName.endsWith('.md') && mdText.length > 20 && !mdText.startsWith('---')
+      fs.unlinkSync(mdPath)
+      log('能导出 .md 文件', mdOk, `${mdName} ${mdText.length} 字`)
+    } else {
+      log('能导出 .md 文件', false, '没有触发下载')
+    }
+
+    // 上面点完抽屉会收起，重新打开再走生成图片
     await page.locator('.gtop .more-btn').click()
     await page.waitForTimeout(300)
     await page.locator('.menu-item', { hasText: '分享' }).click()
