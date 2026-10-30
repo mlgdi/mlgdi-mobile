@@ -63,7 +63,12 @@ public final class ShareViewController: UIViewController {
             for provider in (item.attachments ?? []) {
                 let identifiers = provider.registeredTypeIdentifiers
 
-                // 1) 文件（「文件」App、Obsidian 等文档类 App 走这条）
+                // 1) 文件。
+                //    注意：Info.plist 的激活规则里**已经不再声明文件支持**，
+                //    正路上收不到 file-url —— 文件改由主 App 的
+                //    CFBundleDocumentTypes 接收（系统复制进 Documents/Inbox
+                //    并直接启动主 App）。这里保留分支只为兜底：万一某个系统版本
+                //    仍然把文件递给了扩展，至少能落进剪贴板，不是静默失败。
                 if let fileType = Self.firstType(identifiers, conformingTo: kUTTypeFileURL) {
                     beginLoad()
                     provider.loadItem(forTypeIdentifier: fileType, options: nil) { [weak self] obj, _ in

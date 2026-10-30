@@ -211,7 +211,9 @@ export async function saveMarkdownFile(
 
   // #ifdef APP-PLUS
   const plusAny = (globalThis as any).plus
-  if (!plusAny || plusAny.os?.name !== 'ios') {
+  // plus.os.name 返回的是 'iOS'（首字母大写），直接跟 'ios' 比较会永远不等 ——
+  // 表现就是 iOS 上点下载弹「当前平台暂不支持保存文件」。统一转小写再比。
+  if (!plusAny || String(plusAny.os?.name || '').toLowerCase() !== 'ios') {
     // Android 上要落到公共目录得写 MediaStore / SAF，另做
     throw new Error('当前平台暂不支持保存文件')
   }

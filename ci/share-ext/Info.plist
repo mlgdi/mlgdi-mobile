@@ -31,16 +31,15 @@
 			<key>NSExtensionActivationRule</key>
 			<dict>
 				<!--
-				  为什么必须有 SupportsFileWithMaxCount：
-				  「文件」App 分享 .md 时给的是 public.file-url 附件，而
-				  SupportsText 只匹配纯文本内容项、SupportsWebURL 只匹配网页链接，
-				  两者都不认 file-url —— 扩展于是被系统过滤掉，分享面板里
-				  根本看不到「渡己」。这是「选了 md 却选不到 App」的直接原因。
-				  另外 iOS 并不认识 .md（net.daringfireball.markdown 在手机上
-				  多半是个 dynamic UTI），只认 public.file-url 才不会踩类型的坑。
+				  这里**故意不声明** NSExtensionActivationSupportsFileWithMaxCount。
+				  扩展是独立进程：App Group 要 entitlement（侧载包没有）、
+				  写共享文件会被沙箱拒、iOS 又禁止扩展 openURL —— 收到文件也只能
+				  写剪贴板。一旦它在分享面板里接住文件，主 App 就不会被拉起，
+				  用户看到的是「共享了但没反应，切回来才弹收进碎片箱」。
+				  文件改由主 App 的 CFBundleDocumentTypes 接收：系统把文件复制进
+				  Documents/Inbox 并直接启动主 App（见 ci/assemble-ios.sh）。
+				  文本与网页链接仍走扩展 —— 这两类没有文档打开通道。
 				-->
-				<key>NSExtensionActivationSupportsFileWithMaxCount</key>
-				<integer>1</integer>
 				<key>NSExtensionActivationSupportsText</key>
 				<true/>
 				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
