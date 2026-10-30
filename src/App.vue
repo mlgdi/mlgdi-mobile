@@ -2,6 +2,8 @@
 import { onHide, onLaunch, onShow } from '@dcloudio/uni-app'
 import { initTheme, recomputeTheme } from './shared/theme'
 import { askClipboardIntake, handleExternalOpen } from './shared/utils/intake'
+import { checkInboxImport } from './shared/utils/inbox-import'
+import { hasSession } from './shared/auth/session'
 import { startAutoSync, stopAutoSync } from './shared/sync/autoSync'
 
 /**
@@ -86,6 +88,9 @@ onShow(() => {
   handleExternalOpen()
   // 剪贴板：切回来时发现像样的内容就弹窗问一句要不要收
   void askClipboardIntake()
+  // 其他 App 分享过来的文件：系统会把它复制进 Documents/Inbox，
+  // 这里扫一眼，有就进导入页让用户选「碎片 / 文章」
+  checkInboxImport(hasSession())
   // 别处改了文章：每 15 秒问一次索引版本号，变了就重拉列表
   startAutoSync()
 })

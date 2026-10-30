@@ -153,8 +153,45 @@ data["CFBundleURLTypes"] = [
         "CFBundleURLSchemes": ["mlgdi"],
     }
 ]
+
+# 文档类型：让渡己出现在「文件」App 的共享 / 用其他应用打开列表里。
+# 这是「直接接收文件」的唯一无特权通道 —— 分享扩展是独立进程、沙箱不同，
+# 写不进主 App 目录，只能退到剪贴板；而声明文档类型后系统会把文件
+# **复制到主 App 沙箱的 Documents/Inbox/**，JS 侧随时可读。
+data["CFBundleDocumentTypes"] = [
+    {
+        "CFBundleTypeName": "Markdown",
+        "CFBundleTypeRole": "Editor",
+        # Alternate：不抢用户默认的 md 编辑器，只在共享/打开方式里出现
+        "LSHandlerRank": "Alternate",
+        "LSItemContentTypes": [
+            "net.daringfireball.markdown",
+            "public.plain-text",
+        ],
+    }
+]
+
+# iOS 手机端默认不认识 .md（dynamic UTI），显式声明一次，
+# 系统才会把 .md 归到上面那个 document type 里。
+data["UTImportedTypeDeclarations"] = [
+    {
+        "UTTypeIdentifier": "net.daringfireball.markdown",
+        "UTTypeDescription": "Markdown 文档",
+        "UTTypeConformsTo": ["public.plain-text"],
+        "UTTypeTagSpecification": {
+            "public.filename-extension": ["md", "markdown", "mdown", "mkd"],
+            "public.mime-type": ["text/markdown", "text/x-markdown"],
+        },
+    }
+]
+
+# 必须是 false（也是默认值）：原地打开拿到的是 security-scoped URL，
+# 出了 openURL 回调就可能失效；复制进 Inbox 的副本才一直可读。
+data["LSSupportsOpeningDocumentsInPlace"] = False
+
 p.write_bytes(plistlib.dumps(data))
 print("CFBundleURLTypes: mlgdi:// 已注册")
+print("CFBundleDocumentTypes: md/txt 可被共享打开（文件复制进 Documents/Inbox）")
 PY
 
 # 开屏：用仓库里 Web 入口页风格的 storyboard 覆盖 SDK 自带的

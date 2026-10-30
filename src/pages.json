@@ -32,6 +32,13 @@
       }
     },
     {
+      "path": "pages/import-doc/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "导入文件"
+      }
+    },
+    {
       "path": "pages/inbox/index",
       "style": {
         "navigationStyle": "custom",
