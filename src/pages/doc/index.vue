@@ -201,7 +201,7 @@
       :is-public="shareIsPublic"
       @close="shareOpen = false"
       @poster="openPoster"
-      @file="shareMarkdown"
+      @file="saveMarkdown"
     />
 
     <!-- 归档 / 移动：底部抽屉选目标目录，选完立刻执行 -->
@@ -239,7 +239,7 @@ import { useAuthStore } from '../../shared/store/auth'
 import { useSiteStore } from '../../shared/store/site'
 import { subLevels } from '../../shared/utils/scope'
 import { isPublicShare, shareUrlOf } from '../../shared/utils/share'
-import { shareMarkdownFile } from '../../shared/utils/share-file'
+import { saveMarkdownFile } from '../../shared/utils/share-file'
 import { formatDate } from '../../shared/utils/date'
 import { getBaseUrl } from '../../shared/config/server'
 
@@ -505,15 +505,15 @@ const shareOpen = ref(false)
  * 会整块空白：不报错、draw 像没发生、也导不出图。画布只能待在
  * 正常文档流里 —— 所以做成页面，而不是弹层里的一个组件。
  */
-/** 分享 Markdown 文件：写临时 .md → 系统分享面板（微信 / 邮件 / 存储到文件…） */
-async function shareMarkdown(): Promise<void> {
+/** 下载 Markdown：写临时 .md → 存到「文件」App（用户自己再决定发给谁） */
+async function saveMarkdown(): Promise<void> {
   const d = doc.value
   if (!d) return
   // 等抽屉收起再做：面板从 rootViewController 弹出，抽屉还在做 transform
   // 动画时 present，iOS 可能直接忽略（点了没反应就是这个）
   await new Promise((resolve) => setTimeout(resolve, 320))
   try {
-    const how = await shareMarkdownFile(d.title, d.body)
+    const how = await saveMarkdownFile(d.title, d.body)
     if (how === 'downloaded') uni.showToast({ title: '已下载 .md 文件', icon: 'none' })
   } catch (e) {
     uni.showToast({ title: (e as Error)?.message || '分享失败', icon: 'none' })

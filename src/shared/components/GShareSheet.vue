@@ -2,8 +2,9 @@
 /**
  * 分享抽屉：三条路 —— 复制链接、生成分享图（带二维码）、发 `.md` 文件。
  *
- * 前两条针对「发给别人看」；第三条是把原文交给对方（同行、协作者、存档），
- * 走系统分享面板，由用户自己选微信 / QQ / 邮件 / 存储到文件。
+ * 前两条针对「发给别人看」；第三条是把原文存下来（存档、二次编辑、转到别的
+ * 工具）。存到「文件」App 而不是直接弹分享面板：分享是「立刻发出去」，
+ * 而 .md 在微信的分享扩展里未必被接受，先落地再由用户决定更可靠。
  * 不做微信 SDK 卡片：那需要开放平台审过的移动应用，侧载包拿不到。
  */
 import { ref, watch } from 'vue'
@@ -103,12 +104,11 @@ function sendFile(): void {
       <view class="srow" @click="sendFile">
         <view class="sico"><GIcon name="doc" :size="34" :weight="2" /></view>
         <view class="smain">
+          <text class="srow-t">下载 Markdown 文件</text>
           <!-- #ifdef APP-PLUS -->
-          <text class="srow-t">分享 Markdown 文件</text>
-          <text class="srow-h">以 .md 原文件发送，保留排版</text>
+          <text class="srow-h">保存到「文件」App，之后想发谁发谁</text>
           <!-- #endif -->
           <!-- #ifdef H5 -->
-          <text class="srow-t">下载 Markdown 文件</text>
           <text class="srow-h">保存为 .md 文件</text>
           <!-- #endif -->
         </view>

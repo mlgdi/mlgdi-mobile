@@ -1,5 +1,5 @@
 /**
- * 把正文导出成 `.md` 文件，交给系统分享面板（微信 / QQ / 邮件 / 存储到文件）。
+ * 把正文导出成 `.md` 文件，存到用户自己能找到的地方（App 端是「文件」App）。
  *
  * 为什么不用 `plus.share.sendWithSystem`：它的 `ShareMessage` 只定义了
  * `text` 与 `image` 两种 type（官方文档原文：「仅支持 type 类型为 "text"、
@@ -92,7 +92,7 @@ function writeDocFile(name: string, text: string): Promise<string> {
  * 驼峰拼接（`initWithActivityItemsApplicationActivities`）在部分基座上不生效，
  * 表现是面板根本不出现、也没有报错。
  */
-function presentFileSheet(absPath: string): void {
+function presentShareSheet(absPath: string): void {
   const plusAny = (globalThis as any).plus
   const ios = plusAny?.ios
   if (!ios?.importClass) throw new Error('当前环境不支持系统分享')
@@ -115,17 +115,7 @@ function presentFileSheet(absPath: string): void {
   if (!vc) throw new Error('无法创建分享面板')
   ios.invoke(vc, 'initWithActivityItems:applicationActivities:', items, null)
 
-  const UIApplication = ios.importClass('UIApplication')
-  const app = UIApplication.sharedApplication()
-  let win = ios.invoke(app, 'keyWindow')
-  if (!win) {
-    // iOS 13+ 多场景：keyWindow 可能为空，退回 delegate.window
-    const delegate = ios.invoke(app, 'delegate')
-    win = ios.invoke(delegate, 'window')
-  }
-  const root = ios.invoke(win, 'rootViewController')
-  if (!root) throw new Error('找不到可用的窗口，无法打开分享面板')
-
+  const root = rootViewController(ios)
   // iPad 上不设 popover 会崩（UIPopoverPresentationController 必须有锚点）；
   // iPhone 无影响，这里顺手补上，免得以后在平板上踩。
   const popover = ios.invoke(vc, 'popoverPresentationController')
@@ -135,6 +125,64 @@ function presentFileSheet(absPath: string): void {
   }
 
   ios.invoke(root, 'presentViewController:animated:completion:', vc, true, null)
+}
+
+/** 取当前可用窗口的 rootViewController —— 所有系统面板都从这里 present */
+function rootViewController(ios: any): any {
+  const UIApplication = ios.importClass('UIApplication')
+  const app = UIApplication.sharedApplication()
+  let win = ios.invoke(app, 'keyWindow')
+  if (!win) {
+    // iOS 13+ 多场景：keyWindow 可能为空，退回 delegate.window
+    const delegate = ios.invoke(app, 'delegate')
+    win = ios.invoke(delegate, 'window')
+  }
+  const root = ios.invoke(win, 'rootViewController')
+  if (!root) throw new Error('找不到可用的窗口')
+  return root
+}
+
+/**
+ * 弹出「存储到文件」——就是系统文件 App 的保存位置选择器。
+ *
+ * 为什么不用分享面板：用户要的是「下载」，也就是把文件放到自己能看到的地方，
+ * 再由他自己决定怎么处理（发微信、丢网盘、留着）。分享面板是「立刻发出去」的
+ * 语义，而且微信收不收 .md 由它的分享扩展决定，那个面板里可能根本没有微信。
+ *
+ * `initForExportingURLs:asCopy:` 是 iOS 14+ 的构造器；老系统退回
+ * `initWithURL:inMode:`（UIDocumentPickerModeExportToService = 1）。
+ * 传错构造器不会报错，而是拿到一个没初始化的控制器 —— present 时直接崩，
+ * 所以按版本号选，不靠 try/catch。
+ */
+function presentFilePicker(absPath: string): void {
+  const plusAny = (globalThis as any).plus
+  const ios = plusAny?.ios
+  if (!ios?.importClass) throw new Error('当前环境不支持存储文件')
+
+  const NSURL = ios.importClass('NSURL')
+  const url = NSURL.fileURLWithPath(absPath)
+  const NSArray = ios.importClass('NSArray')
+  const urls = NSArray.arrayWithObject(url)
+
+  const PickerClass = ios.importClass('UIDocumentPickerViewController')
+  let picker: any
+  try {
+    picker = new (PickerClass as any)()
+  } catch {
+    picker = ios.newObject?.('UIDocumentPickerViewController')
+  }
+  if (!picker) throw new Error('无法创建文件选择器')
+
+  const major = parseInt(String(plusAny.os?.version || '0'), 10) || 0
+  if (major >= 14) {
+    ios.invoke(picker, 'initForExportingURLs:asCopy:', urls, true)
+  } else {
+    // 1 = UIDocumentPickerModeExportToService
+    ios.invoke(picker, 'initWithURL:inMode:', url, 1)
+  }
+
+  const root = rootViewController(ios)
+  ios.invoke(root, 'presentViewController:animated:completion:', picker, true, null)
 }
 
 /** H5：直接下载一个 .md 文件 */
@@ -150,27 +198,32 @@ function downloadBlob(name: string, text: string): void {
 }
 
 /**
- * 分享 Markdown 文件。
+ * 下载 Markdown 文件（App 端存储到「文件」App，H5 端直接下载）。
  *
- * @returns `'sheet'` 已弹出系统面板 / `'downloaded'` 已触发下载（H5）
+ * @returns `'picker'` 已弹出保存位置选择器 / `'downloaded'` 已触发下载
  */
-export async function shareMarkdownFile(
+export async function saveMarkdownFile(
   title: string,
   body: string,
-): Promise<'sheet' | 'downloaded'> {
+): Promise<'picker' | 'downloaded'> {
   const name = markdownFileName(title)
   const text = markdownText(body)
 
   // #ifdef APP-PLUS
   const plusAny = (globalThis as any).plus
   if (!plusAny || plusAny.os?.name !== 'ios') {
-    // Android 的系统分享同样没有传文件的通道，要做得另写原生 Intent；
-    // 与其假装成功，不如明确说不支持（用户当前只有 iOS 端）
-    throw new Error('当前平台暂不支持直接发送文件')
+    // Android 上要落到公共目录得写 MediaStore / SAF，另做
+    throw new Error('当前平台暂不支持保存文件')
   }
   const abs = await writeDocFile(name, text)
-  presentFileSheet(abs)
-  return 'sheet'
+  try {
+    presentFilePicker(abs)
+  } catch {
+    // 文件选择器在某些越狱 / 老系统上可能拿不到；
+    // 退回分享面板，至少让文件能出去，而不是点了毫无反应
+    presentShareSheet(abs)
+  }
+  return 'picker'
   // #endif
 
   // #ifdef H5
@@ -178,5 +231,5 @@ export async function shareMarkdownFile(
   return 'downloaded'
   // #endif
 
-  throw new Error('当前环境不支持分享文件')
+  throw new Error('当前环境不支持保存文件')
 }
