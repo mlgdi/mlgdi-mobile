@@ -22,6 +22,7 @@
  */
 
 import { log, logError } from './logger'
+import { sandboxInbox } from './paths'
 
 export interface InboxDoc {
   /** 原始文件名（含扩展名） */
@@ -39,83 +40,44 @@ const TEXT_EXT = /\.(md|markdown|mkd|txt|text)$/i
 const MAX_CHARS = 4 * 1024 * 1024
 
 /**
- * ⚠️ 这里曾经写成 `_doc/Inbox/`，是**错的**，也是「共享进来永远 0 个文件」的根因。
+ * 系统接收外来文件的位置：**`<sandbox>/Documents/Inbox/`**。
  *
- * `_doc` 是 DCloud 自己的私有目录，iOS 上实际落在
- * `Library/Pandora/apps/<appid>/doc`（下载 Markdown 的日志里能看到这个绝对路径）。
- * 而系统做 document interaction 时，只会把外来的文件复制进
- * **`<sandbox>/Documents/Inbox/`** —— 也就是 `_documents/Inbox/`。
- * 两者隔着好几层目录，扫前者永远扫不到东西。
+ * 这个路径翻过两次车，写清楚免得再犯：
+ * 1. 最早写的 `_doc/Inbox/` —— `_doc` 是 `Library/Pandora/apps/<appid>/doc`；
+ * 2. 第二版换成 `_documents/Inbox/`（`plus.io.PUBLIC_DOCUMENTS`）—— 结果它在
+ *    iOS 上解析到 `Library/Pandora/documents`，**仍然不是** `<sandbox>/Documents`。
+ * 两者都不是系统复制文件的地方，所以两次都是 0 个文件。
  *
- * App 在 Info.plist 里声明了 `CFBundleDocumentTypes` 且
- * `LSSupportsOpeningDocumentsInPlace = false`，所以「文件」App 里长按 .md →
- * 共享 → 渡己，系统走的就是「复制到 Documents/Inbox」这条路。
+ * 真路径只能靠 `paths.ts` 里「从 `_doc` 绝对路径切掉 `/Library/`」推出来。
  */
-const DOCS_INBOX = '_documents/Inbox/'
+const DOCS_INBOX_LABEL = 'Documents/Inbox'
 
-/**
- * 历史路径，留作兜底。
- *
- * 不直接删：万一某个基座把 `_doc` 映射到了 Documents，或者用户手上还有
- * 旧版本残留在那里，多扫一处不会错 —— 代价只是一次目录读取。
- */
+/** uni 前缀落在 `Library/Pandora/documents`，兜底用（不是正确位置，但可能残留旧文件） */
+const LEGACY_DOCUMENTS_INBOX = '_documents/Inbox/'
+
+/** DCloud 私有目录，只在极端情况下才可能有东西 */
 const LEGACY_INBOX = '_doc/Inbox/'
 
 function plusIO(): any {
   return (globalThis as any).plus?.io
 }
 
-/**
- * App 的 Documents 绝对路径（iOS：`/var/mobile/.../Documents`）。
- *
- * 为什么要拿绝对路径而不是只用 `_documents/` 前缀：诊断页要把真实位置印出来，
- * 而且 `resolveLocalFileSystemURL` 对前缀的解析在不同基座上不完全一致，
- * 用绝对路径最没歧义。
- */
-function publicDocumentsRoot(): Promise<string> {
-  return new Promise((resolve) => {
-    const io = plusIO()
-    if (!io?.requestFileSystem || io.PUBLIC_DOCUMENTS === undefined) {
-      resolve('')
-      return
-    }
-    // plus.io 的回调在个别基座上不回来，而这里挡在「扫 Inbox」的最前面：
-    // 一旦挂住，导入页会一直空白，比拿错目录更难查。1.5 秒没结果就走兜底。
-    let done = false
-    const finish = (value: string): void => {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      resolve(value)
-    }
-    const timer = setTimeout(() => finish(''), 1500)
-    try {
-      io.requestFileSystem(
-        io.PUBLIC_DOCUMENTS,
-        (fs: any) => finish(String(fs?.root?.fullPath || '').replace(/\/+$/, '')),
-        () => finish(''),
-      )
-    } catch {
-      finish('')
-    }
-  })
-}
-
 let cachedInboxDirs: string[] | null = null
 
-/** 要扫描的目录（绝对路径优先，`_doc/Inbox` 兜底）。 */
+/**
+ * 要扫描的目录，第一个是权威位置（真 `Documents/Inbox` 的绝对路径）。
+ * 后面的只作兜底：旧版本可能在这两处留下过文件。
+ */
 async function inboxDirs(): Promise<string[]> {
   if (cachedInboxDirs) return cachedInboxDirs
-  const root = await publicDocumentsRoot()
-  // 只认真正的绝对路径。拿到 "/" 或相对串时拼出来的是系统根或错误位置，
-  // 宁可退回 `_documents/Inbox/` 这个 uni 前缀
-  if (root.startsWith('/') && root.length > 1) {
-    // 拿到绝对路径才缓存。冷启动时 plus.io 可能还没完全就绪，
-    // 把「没拿到」的结果缓存下来，会让整个会话都扫错位置
-    cachedInboxDirs = [`${root}/Inbox`, LEGACY_INBOX]
+  const real = await sandboxInbox()
+  // 拿到绝对路径才缓存。冷启动时 plus.io 可能还没完全就绪，
+  // 把「没拿到」缓存下来会让整个会话都扫错位置
+  if (real) {
+    cachedInboxDirs = [real, LEGACY_DOCUMENTS_INBOX, LEGACY_INBOX]
     return cachedInboxDirs
   }
-  return [DOCS_INBOX, LEGACY_INBOX]
+  return [LEGACY_DOCUMENTS_INBOX, LEGACY_INBOX]
 }
 
 /** 列目录。`readEntries` 一次最多返回 100 条，必须循环读到空数组为止 */
@@ -264,7 +226,7 @@ function whenPlusReady(timeout = 3000): Promise<void> {
 }
 
 /** Inbox 目录，导入页在空态里显示它，便于判断「系统有没有把文件拷进来」 */
-export const INBOX_PATH = DOCS_INBOX
+export const INBOX_PATH = DOCS_INBOX_LABEL
 
 export interface InboxDirStat {
   dir: string
@@ -272,7 +234,7 @@ export interface InboxDirStat {
 }
 
 export interface InboxDiagnostics {
-  /** 实际扫描的主目录（正常情况下是 Documents/Inbox） */
+  /** 实际扫描的主目录 */
   dir: string
   /** 主目录解析出的绝对路径；拿不到为空串 */
   absDir: string
@@ -308,7 +270,7 @@ export async function inboxDiagnostics(): Promise<InboxDiagnostics> {
     }
   }
 
-  const main = dirs[0] || DOCS_INBOX
+  const main = dirs[0] || DOCS_INBOX_LABEL
   return {
     dir: main,
     absDir: main.startsWith('/') ? main : '',
@@ -318,7 +280,7 @@ export async function inboxDiagnostics(): Promise<InboxDiagnostics> {
     others,
   }
   // #endif
-  return { dir: DOCS_INBOX, absDir: '', total: 0, usable: 0, names: [], others: [] }
+  return { dir: DOCS_INBOX_LABEL, absDir: '', total: 0, usable: 0, names: [], others: [] }
 }
 
 let lastCheck = 0

@@ -1,5 +1,6 @@
 import { log, logError } from './logger'
 import { recordExport } from './diag'
+import { sandboxRoot } from './paths'
 
 /**
  * 把正文导出成 `.md` 文件，存到用户自己能找到的地方（App 端是「文件」App）。
@@ -90,10 +91,82 @@ function fileSize(entry: any): Promise<number> {
 }
 
 /**
- * 往某个文件系统根下写文件，返回绝对路径与实际大小。
+ * 往某个目录 entry 里写文件，返回绝对路径与实际大小。
  *
- * `dirName` 为空表示直接写在根下；否则先建（或复用）这个子目录。
+ * 先删再建，而不是 truncate 后重写：新建的空文件上 truncate(0)
+ * 有时不触发 onwrite；而同名文件不清空，短内容会把上一次的字留在尾部。
  */
+function writeIntoDir(
+  dirEntry: any,
+  name: string,
+  text: string,
+): Promise<{ abs: string; size: number }> {
+  return new Promise((resolve, reject) => {
+    const create = (): void => {
+      dirEntry.getFile(
+        name,
+        { create: true },
+        (entry: any) => {
+          entry.createWriter(
+            (writer: any) => {
+              writer.onwrite = () => {
+                const raw = String(entry.fullPath || '')
+                const abs = raw.startsWith('/') ? raw : toAbsolute(raw)
+                void fileSize(entry).then((size) => resolve({ abs, size }))
+              }
+              writer.onerror = () => reject(new Error('写入 Markdown 失败'))
+              writer.write(text)
+            },
+            () => reject(new Error('无法创建文件')),
+          )
+        },
+        () => reject(new Error('无法创建文件')),
+      )
+    }
+    dirEntry.getFile(name, { create: false }, (old: any) => old.remove(create, create), create)
+  })
+}
+
+/**
+ * 往 `<sandbox>/Documents/Exports/` 写 —— 这才是「文件」App 里看得见的那个 Documents。
+ *
+ * 只能从沙盒根一层层 `getDirectory(..., {create:true})` 走进去：
+ * `plus.io.requestFileSystem` 只认文件系统常量，不认任意绝对路径，
+ * 而 `PUBLIC_DOCUMENTS` 在 iOS 上给的是 `Library/Pandora/documents`（错的）。
+ * `resolveLocalFileSystemURL` 接受绝对路径，从根开始建目录最稳。
+ */
+function writeUnderSandbox(
+  root: string,
+  name: string,
+  text: string,
+): Promise<{ abs: string; size: number }> {
+  return new Promise((resolve, reject) => {
+    const io = plusIO()
+    io.resolveLocalFileSystemURL(
+      root,
+      (rootEntry: any) => {
+        rootEntry.getDirectory(
+          'Documents',
+          { create: true },
+          (docs: any) => {
+            docs.getDirectory(
+              'Exports',
+              { create: true },
+              (dir: any) => {
+                writeIntoDir(dir, name, text).then(resolve, reject)
+              },
+              () => reject(new Error('无法创建 Exports 目录')),
+            )
+          },
+          () => reject(new Error('无法创建 Documents 目录')),
+        )
+      },
+      () => reject(new Error('无法访问沙盒目录')),
+    )
+  })
+}
+
+/** 往某个文件系统常量下写，`dirName` 为空表示直接写在根下。兜底用。 */
 function writeOne(
   fsConst: number,
   dirName: string,
@@ -105,41 +178,14 @@ function writeOne(
     io.requestFileSystem(
       fsConst,
       (fs: any) => {
-        const putFile = (dirEntry: any): void => {
-          // 先删再建，而不是 truncate 后重写：新建的空文件上 truncate(0)
-          // 有时不触发 onwrite；而同名文件不清空，短内容会把上一次的字留在尾部。
-          const create = (): void => {
-            dirEntry.getFile(
-              name,
-              { create: true },
-              (entry: any) => {
-                entry.createWriter(
-                  (writer: any) => {
-                    writer.onwrite = () => {
-                      const raw = String(entry.fullPath || '')
-                      const abs = raw.startsWith('/') ? raw : toAbsolute(raw)
-                      void fileSize(entry).then((size) => resolve({ abs, size }))
-                    }
-                    writer.onerror = () => reject(new Error('写入 Markdown 失败'))
-                    writer.write(text)
-                  },
-                  () => reject(new Error('无法创建文件')),
-                )
-              },
-              () => reject(new Error('无法创建文件')),
-            )
-          }
-          dirEntry.getFile(name, { create: false }, (old: any) => old.remove(create, create), create)
-        }
-
         if (!dirName) {
-          putFile(fs.root)
+          writeIntoDir(fs.root, name, text).then(resolve, reject)
           return
         }
         fs.root.getDirectory(
           dirName,
           { create: true },
-          (d: any) => putFile(d),
+          (d: any) => writeIntoDir(d, name, text).then(resolve, reject),
           () => reject(new Error('无法创建导出目录')),
         )
       },
@@ -155,14 +201,15 @@ function plusIO(): any {
 /**
  * 把正文写成一个 .md 文件，返回绝对路径与真实字节数。
  *
- * 落点**优先 Documents/Exports/**，不是 `_doc/`：
- * - `_doc` 在 iOS 上是 `Library/Pandora/apps/<appid>/doc`，用户根本看不到；
- * - Documents 是系统认可的用户目录，配合 Info.plist 的
- *   `UIFileSharingEnabled`，「文件」App → 我的 iPhone → 渡己 → Exports
- *   里直接就能看到这个文件。**「下载」的第一诉求是拿到文件，
- *   而不是每次都过一遍「存储到文件」面板**；
+ * 落点**优先真 `<sandbox>/Documents/Exports/`**：
+ * - 那是 `UIFileSharingEnabled` 暴露给「文件」App 的目录，
+ *   用户能在「我的 iPhone → 渡己 → Exports」里直接拿到文件 ——
+ *   **「下载」的第一诉求是拿到文件，而不是每次都过一遍「存储到文件」面板**；
+ * - 注意不是 `_documents` / `PUBLIC_DOCUMENTS`：那两个在 iOS 上落在
+ *   `Library/Pandora/documents`，文件 App 根本看不见（0.7.26 踩过，
+ *   诊断页显示导出路径是 `.../Library/Pandora/documents/Exports/...`）；
  * - 弹选择器保留，作为「另存到 iCloud / 其他 App」的第二条路。
- * 写不进 Documents 时退回 `_doc/`，至少还能交给选择器。
+ * 真 Documents 写不进时退回 DCloud 目录，至少还能交给选择器。
  *
  * 不再尝试 `uni.getFileSystemManager()`：那是小程序 API，App 端根本不存在
  * （诊断页一直显示「不可用」就是这个原因），先调它只是白试一次。
@@ -171,13 +218,29 @@ async function writeDocFile(name: string, text: string): Promise<{ abs: string; 
   const io = plusIO()
   if (!io) throw new Error('当前环境不支持写入文件')
 
+  let lastError: Error | null = null
+
+  // ① 真 Documents/Exports —— 唯一在「文件」App 里可见的位置
+  const root = await sandboxRoot()
+  if (root) {
+    try {
+      return await withTimeout(writeUnderSandbox(root, name, text), 8000, '写入文件超时，请重试')
+    } catch (e) {
+      lastError = e as Error
+      logError('md', `写入 Documents/Exports 失败：${lastError.message}`)
+    }
+  } else {
+    logError('md', '拿不到沙盒根目录，退回 DCloud 目录')
+  }
+
+  // ② DCloud 的 PUBLIC_DOCUMENTS（Library/Pandora/documents/Exports）
+  // ③ DCloud 的 PRIVATE_DOC
   const targets: { fsConst: number; dir: string }[] = []
   if (io.PUBLIC_DOCUMENTS !== undefined) {
     targets.push({ fsConst: io.PUBLIC_DOCUMENTS, dir: 'Exports' })
   }
   targets.push({ fsConst: io.PRIVATE_DOC, dir: '' })
 
-  let lastError: Error | null = null
   for (const target of targets) {
     try {
       return await withTimeout(
