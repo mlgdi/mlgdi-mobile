@@ -14,6 +14,7 @@ import { capture } from '../api/inbox'
 import { hasSession } from '../auth/session'
 import { readClipboard } from './file'
 import { requireLogin } from './guard'
+import { confirmDialog, toast } from '../ui/feedback'
 
 /** 上一次问过的内容：同一段内容只在切换回来时问一次，不反复弹 */
 let lastClip = ''
@@ -45,22 +46,21 @@ async function doCapture(text: string): Promise<void> {
       source_type: isUrl(text) ? 'url' : 'text',
       source_url: isUrl(text) ? text : '',
     })
-    uni.showToast({ title: '已收进碎片箱', icon: 'none' })
+    toast('已收进碎片箱')
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || '投递失败', icon: 'none' })
+    toast(err?.reason || '投递失败')
   }
 }
 
 /** 确认弹窗：投递 or 忽略，没有第三种结局 */
 function askCapture(text: string, from: string): void {
-  uni.showModal({
+  void confirmDialog({
     title: from === 'share' ? '收下这条分享？' : '收进碎片箱？',
     content: preview(text),
     cancelText: '忽略',
     confirmText: '投递',
-    success: (res) => {
-      if (res.confirm) void doCapture(text)
-    },
+  }).then((ok) => {
+    if (ok) void doCapture(text)
   })
 }
 

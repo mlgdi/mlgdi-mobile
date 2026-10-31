@@ -607,6 +607,7 @@ import {
 } from '../../shared/api/admin'
 import { columnByCode, tint } from '../../shared/config/columns'
 
+import { toast, confirmDialog, promptDialog, alertDialog } from '../../shared/ui/feedback'
 type Panel =
   | 'root'
   | 'general'
@@ -745,14 +746,12 @@ async function syncDisk(): Promise<void> {
     if (r.moved) parts.push(`移动 ${r.moved}`)
     if (r.deleted) parts.push(`删除 ${r.deleted}`)
     const errs = r.errors?.length ? `\n${r.errors.length} 个文件解析失败，详情见后端日志` : ''
-    uni.showModal({
+    await alertDialog(`共扫描 ${r.total} 个文件\n${parts.join(' · ')}${errs}`, {
       title: '同步完成',
-      content: `共扫描 ${r.total} 个文件\n${parts.join(' · ')}${errs}`,
-      showCancel: false,
       confirmText: '知道了',
     })
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || '同步失败', icon: 'none' })
+    toast(err?.reason || '同步失败')
   } finally {
     syncing.value = false
   }
@@ -910,7 +909,7 @@ async function loadSubs(dir: string, force = false): Promise<void> {
     const res = await listSubs(dir)
     subLists.value = { ...subLists.value, [dir]: mergeSubs(dir, res.items || []) }
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || '小类加载失败', icon: 'none' })
+    toast(err?.reason || '小类加载失败')
   } finally {
     subLoading.value = { ...subLoading.value, [dir]: false }
   }
@@ -973,33 +972,32 @@ function leaveSub(): void {
   void loadSubs(up)
 }
 
-/** 新建：单字段输入用系统输入弹窗（比再跳一层只有一行输入的面板轻） */
+/** 新建：单字段输入用输入弹窗（比再跳一层只有一行输入的面板轻） */
 function createChild(parent: string): void {
   if (!parent) return
-  uni.showModal({
+  void promptDialog({
     title: '新建小类',
-    editable: true,
-    placeholderText: '目录名',
-    success: (res) => {
-      if (!res.confirm) return
-      const name = (res.content || '').trim()
-      if (!name) return
-      createSub(parent, name)
-        .then(async () => {
-          await reloadCol()
-          await loadSubs(parent, true)
-          if (panel.value === 'columnEdit') {
-            const next = new Set(expanded.value)
-            next.add(parent)
-            expanded.value = next
-          }
-          await refreshNav()
-          uni.showToast({ title: '已新建', icon: 'none' })
-        })
-        .catch((err: any) => {
-          uni.showToast({ title: err?.reason || '新建失败', icon: 'none' })
-        })
-    },
+    input: { placeholder: '目录名' },
+    confirmText: '新建',
+  }).then((res) => {
+    if (!res.confirm) return
+    const name = res.content.trim()
+    if (!name) return
+    createSub(parent, name)
+      .then(async () => {
+        await reloadCol()
+        await loadSubs(parent, true)
+        if (panel.value === 'columnEdit') {
+          const next = new Set(expanded.value)
+          next.add(parent)
+          expanded.value = next
+        }
+        await refreshNav()
+        toast('已新建')
+      })
+      .catch((err: any) => {
+        toast(err?.reason || '新建失败')
+      })
   })
 }
 
@@ -1007,7 +1005,7 @@ function saveSubAlias(): void {
   const sub = curSub.value
   if (!sub) return
   if (sub.missing) {
-    uni.showToast({ title: '目录已不存在，只能清理', icon: 'none' })
+    toast('目录已不存在，只能清理')
     return
   }
   const alias = subAlias.value.trim()
@@ -1026,10 +1024,10 @@ function saveSubAlias(): void {
       subAlias.value = saved
       await reloadCol()
       await refreshNav()
-      uni.showToast({ title: saved ? '显示名已更新' : '已恢复用目录名', icon: 'none' })
+      toast(saved ? '显示名已更新' : '已恢复用目录名')
     })
     .catch((err: any) => {
-      uni.showToast({ title: err?.reason || '保存失败', icon: 'none' })
+      toast(err?.reason || '保存失败')
     })
     .finally(() => {
       subBusy.value = false
@@ -1095,13 +1093,13 @@ function moveSub(path: string, delta: -1 | 1): void {
   saveColumns(cols.value)
     .then(async () => {
       await refreshNav()
-      uni.showToast({ title: '顺序已保存', icon: 'none' })
+      toast('顺序已保存')
     })
     .catch(async (err: any) => {
       editCol.value = { ...col, subs: before }
       cols.value = cols.value.map((c) => (c.path === col.path ? editCol.value! : c))
       await loadSubs(parent, true)
-      uni.showToast({ title: err?.reason || '排序保存失败', icon: 'none' })
+      toast(err?.reason || '排序保存失败')
     })
     .finally(() => {
       subMoving.value = false
@@ -1109,33 +1107,26 @@ function moveSub(path: string, delta: -1 | 1): void {
 }
 
 /** 目录改名：两道确认（先讲清代价，再输入新名字），绝不悄悄动 */
-function renameCurSub(): void {
+async function renameCurSub(): Promise<void> {
   const sub = curSub.value
   if (!sub) return
   if (sub.missing) {
-    uni.showToast({ title: '目录已不存在，只能清理', icon: 'none' })
+    toast('目录已不存在，只能清理')
     return
   }
-  uni.showModal({
+  const goOn = await confirmDialog({
     title: '重命名目录',
     content: `「${sub.name}」会改名。指向旧路径的双链和链接会失效；正文内容本身不会被改写。`,
     confirmText: '继续',
-    success: (res) => {
-      if (!res.confirm) return
-      // 第一个弹窗还没收干净时立刻弹第二个，iOS 上会吞掉——隔一拍
-      setTimeout(() => {
-        uni.showModal({
-          title: '新的目录名',
-          editable: true,
-          content: sub.name,
-          placeholderText: '新目录名',
-          success: (r2) => {
-            if (r2.confirm) doRenameSub(sub, (r2.content || '').trim())
-          },
-        })
-      }, 320)
-    },
   })
+  if (!goOn) return
+  const res = await promptDialog({
+    title: '新的目录名',
+    input: { value: sub.name, placeholder: '新目录名' },
+    confirmText: '改名',
+  })
+  if (!res.confirm) return
+  await doRenameSub(sub, res.content.trim())
 }
 
 function doRenameSub(sub: AdminSubDir, name: string): void {
@@ -1160,10 +1151,10 @@ function doRenameSub(sub: AdminSubDir, name: string): void {
       await loadSubs(oldParent, true)
       await loadSubs(newPath, true)
       await refreshNav()
-      uni.showToast({ title: '目录已改名', icon: 'none' })
+      toast('目录已改名')
     })
     .catch((err: any) => {
-      uni.showToast({ title: err?.reason || '改名失败', icon: 'none' })
+      toast(err?.reason || '改名失败')
     })
 }
 
@@ -1175,13 +1166,12 @@ function removeCurSub(): void {
 
   // ① 配置残影：文件夹早就没了，只清理这条显示配置
   if (sub.missing) {
-    uni.showModal({
+    void confirmDialog({
       title: '清理残留条目',
       content: `「${sub.alias || sub.name}」的文件夹在磁盘上已经不存在了。清理只删这条显示配置，不动任何文件。`,
       confirmText: '清理',
-      success: (res) => {
-        if (res.confirm) void doRemoveSub(sub)
-      },
+    }).then((ok) => {
+      if (ok) void doRemoveSub(sub)
     })
     return
   }
@@ -1191,23 +1181,21 @@ function removeCurSub(): void {
   if (occupied) {
     const names = sub.files.length ? `（${sub.files.join('、')}${sub.file_count > sub.files.length ? '…' : ''}）` : ''
     const kids = sub.child_count ? `、${sub.child_count} 个下级目录` : ''
-    uni.showModal({
-      title: '目录非空，不能删除',
-      content: `里面还有 ${sub.file_count} 个文件${kids}${names}。请先移走或删除其中的内容 —— 正文是 Markdown 文件，这里不会替你删。`,
-      showCancel: false,
-      confirmText: '知道了',
-    })
+    void alertDialog(
+      `里面还有 ${sub.file_count} 个文件${kids}${names}。请先移走或删除其中的内容 —— 正文是 Markdown 文件，这里不会替你删。`,
+      { title: '目录非空，不能删除', confirmText: '知道了' },
+    )
     return
   }
 
   // ③ 空目录：明确说「无法恢复」再删
-  uni.showModal({
+  void confirmDialog({
     title: '删除小类',
     content: `目录「${sub.name}」是空的，确认删除？删完这个目录就没了，无法恢复。`,
     confirmText: '删除',
-    success: (res) => {
-      if (res.confirm) void doRemoveSub(sub)
-    },
+    danger: true,
+  }).then((ok) => {
+    if (ok) void doRemoveSub(sub)
   })
 }
 
@@ -1215,13 +1203,13 @@ async function doRemoveSub(sub: AdminSubDir): Promise<void> {
   const parent = sub.path.split('/').slice(0, -1).join('/')
   try {
     await deleteSub(sub.path)
-    uni.showToast({ title: sub.missing ? '已清理配置' : '已删除', icon: 'none' })
+    toast(sub.missing ? '已清理配置' : '已删除')
     await reloadCol()
     await loadSubs(parent, true)
     await refreshNav()
     leaveSub()
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || '删除失败', icon: 'none' })
+    toast(err?.reason || '删除失败')
   }
 }
 
@@ -1244,7 +1232,7 @@ async function loadAdmin(): Promise<void> {
     }
     cols.value = full.items || []
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || '站点配置加载失败', icon: 'none' })
+    toast(err?.reason || '站点配置加载失败')
   }
 }
 
@@ -1261,7 +1249,7 @@ function submitSite(): void {
   })
     .then((res) => {
       siteNotice.value = res.message || '已保存'
-      uni.showToast({ title: '已保存', icon: 'none' })
+      toast('已保存')
     })
     .catch((err: any) => {
       siteNotice.value = err?.reason || '保存失败'
@@ -1299,7 +1287,7 @@ async function loadAiSettings(): Promise<void> {
     aiKeyInput.value = ''
     wfs.value = wf.items || []
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || 'AI 设置加载失败', icon: 'none' })
+    toast(err?.reason || 'AI 设置加载失败')
   }
 }
 
@@ -1314,11 +1302,11 @@ function submitAi(): void {
   })
     .then(() => {
       aiKeyInput.value = ''
-      uni.showToast({ title: '已保存，立即生效', icon: 'none' })
+      toast('已保存，立即生效')
       void loadAiSettings()
     })
     .catch((err: any) => {
-      uni.showToast({ title: err?.reason || '保存失败', icon: 'none' })
+      toast(err?.reason || '保存失败')
     })
     .finally(() => {
       aiSaving.value = false
@@ -1349,10 +1337,10 @@ function toggleWorkflow(wf: AdminWorkflow, e: any): void {
   const enabled = Boolean(e?.detail?.value)
   wf.enabled = enabled
   saveWorkflows(wfs.value.map((w) => ({ ...w })))
-    .then(() => uni.showToast({ title: `${wf.name} 已${enabled ? '启用' : '停用'}`, icon: 'none' }))
+    .then(() => toast(`${wf.name} 已${enabled ? '启用' : '停用'}`))
     .catch((err: any) => {
       wf.enabled = !enabled // 回滚 UI
-      uni.showToast({ title: err?.reason || '保存失败', icon: 'none' })
+      toast(err?.reason || '保存失败')
     })
 }
 
@@ -1373,11 +1361,11 @@ function submitWf(): void {
   saveWorkflows(items)
     .then(() => {
       wfs.value = items
-      uni.showToast({ title: '已保存并热加载', icon: 'none' })
+      toast('已保存并热加载')
       panel.value = 'ai'
     })
     .catch((err: any) => {
-      uni.showToast({ title: err?.reason || '保存失败', icon: 'none' })
+      toast(err?.reason || '保存失败')
     })
     .finally(() => {
       wfSaving.value = false
@@ -1412,31 +1400,32 @@ async function loadDevices(): Promise<void> {
 }
 
 function revoke(d: DeviceRow): void {
-  uni.showModal({
+  void confirmDialog({
     title: '吊销设备',
     content: `吊销后「${d.name || d.platform}」需要重新登录，确定吗？`,
-    success: async (res) => {
-      if (!res.confirm) return
-      try {
-        await revokeDevice(d.id)
-        uni.showToast({ title: '已吊销', icon: 'none' })
-        loadDevices()
-      } catch (err: any) {
-        uni.showToast({ title: err?.reason || '吊销失败', icon: 'none' })
-      }
-    },
+    confirmText: '吊销',
+    danger: true,
+  }).then(async (ok) => {
+    if (!ok) return
+    try {
+      await revokeDevice(d.id)
+      toast('已吊销')
+      loadDevices()
+    } catch (err: any) {
+      toast(err?.reason || '吊销失败')
+    }
   })
 }
 
 function logout(): void {
-  uni.showModal({
+  void confirmDialog({
     title: '退出登录',
     content: '本机将清除令牌（设备登记保留，可在列表里吊销）。',
-    success: (res) => {
-      if (!res.confirm) return
-      auth.logout()
-      uni.reLaunch({ url: '/pages/login/index' })
-    },
+    confirmText: '退出',
+  }).then((ok) => {
+    if (!ok) return
+    auth.logout()
+    uni.reLaunch({ url: '/pages/login/index' })
   })
 }
 

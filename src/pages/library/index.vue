@@ -252,6 +252,7 @@ import GDocItem from '../../shared/components/GDocItem.vue'
 import GDirSheet from '../../shared/components/GDirSheet.vue'
 import GTabBar, { type TabCode } from '../../shared/components/GTabBar.vue'
 
+import { toast } from '../../shared/ui/feedback'
 const notes = useNotesStore()
 const auth = useAuthStore()
 const siteStore = useSiteStore()
@@ -681,7 +682,7 @@ async function doCreate(): Promise<void> {
     await notes.load(true)
     uni.navigateTo({ url: `/pages/edit/index?id=${encodeURIComponent(res.doc.id)}` })
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || '创建失败', icon: 'none' })
+    toast(err?.reason || '创建失败')
   } finally {
     creating.value = false
   }

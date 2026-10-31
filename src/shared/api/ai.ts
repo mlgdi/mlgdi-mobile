@@ -27,7 +27,7 @@ export interface AiAssistResult {
 }
 
 export function aiActions(): Promise<AiActionsResult> {
-  return request({ path: '/api/v1/ai/actions' })
+  return request({ path: '/api/v1/ai/actions', silent: true })
 }
 
 /**
@@ -35,7 +35,15 @@ export function aiActions(): Promise<AiActionsResult> {
  *
  * 失败原因（未配置模型 / 上游网关 / 文本过长）后端放在 `detail.reason`，
  * 页面必须优先展示它——只显示「请求参数不合法」等于没报错。
+ *
+ * 不挂全屏浮层：AI 一次几十秒，遮着屏幕更难受；编辑页在对话面板里
+ * 自己显示「正在处理」，那才是用户视线所在。
  */
 export function aiAssist(action: string, text: string, hint?: string): Promise<AiAssistResult> {
-  return request({ method: 'POST', path: '/api/v1/ai/assist', body: { action, text, hint } })
+  return request({
+    method: 'POST',
+    path: '/api/v1/ai/assist',
+    body: { action, text, hint },
+    silent: true,
+  })
 }

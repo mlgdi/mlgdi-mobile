@@ -150,6 +150,7 @@ import {
 import { pickImages, readClipboard } from '../../shared/utils/file'
 import { resolvedTheme } from '../../shared/theme'
 
+import { toast, confirmDialog, promptDialog } from '../../shared/ui/feedback'
 const draft = ref('')
 const images = ref<string[]>([])
 const list = ref<InboxItem[]>([])
@@ -205,7 +206,7 @@ async function load(append = false): Promise<void> {
     // 追加后仍要保持选中项与列表一致（被删掉的不再保留）
     selected.value = selected.value.filter((id) => list.value.some((i) => i.id === id))
   } catch (err: any) {
-    if (!append) uni.showToast({ title: err?.reason || '加载失败', icon: 'none' })
+    if (!append) toast(err?.reason || '加载失败')
   } finally {
     loading.value = false
     loadingMore.value = false
@@ -241,7 +242,7 @@ function removeImage(index: number): void {
 async function pasteClipboard(): Promise<void> {
   const text = await readClipboard()
   if (!text) {
-    uni.showToast({ title: '剪贴板是空的', icon: 'none' })
+    toast('剪贴板是空的')
     return
   }
   draft.value = draft.value ? `${draft.value}\n${text}` : text
@@ -261,11 +262,11 @@ async function submit(): Promise<void> {
     })
     draft.value = ''
     images.value = []
-    uni.showToast({ title: '已投递', icon: 'none' })
+    toast('已投递')
     if (activeStatus.value === 'processed') activeStatus.value = 'captured'
     await load()
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || '投递失败', icon: 'none' })
+    toast(err?.reason || '投递失败')
   } finally {
     sending.value = false
   }
@@ -293,109 +294,111 @@ function parseUrl(): void {
     } catch {
       /* 读不到就不预填 */
     }
-    uni.showModal({
+    const res = await promptDialog({
       title: '解析网页链接',
-      editable: true,
-      placeholderText: '粘贴 URL，正文与图片会被抓回来',
-      content: prefill,
-      success: async (res) => {
-        if (!res.confirm) return
-        const url = (res.content || '').trim()
-        if (!/^https?:\/\/\S+$/i.test(url)) {
-          uni.showToast({ title: '不是有效的链接', icon: 'none' })
-          return
-        }
-        try {
-          await capture({ content: url, source_type: 'url', source_url: url })
-          uni.showToast({ title: '开始抓取，稍候刷新查看', icon: 'none' })
-          if (activeStatus.value !== 'captured' && activeStatus.value !== '') {
-            activeStatus.value = 'captured'
-          }
-          await load()
-        } catch (err: any) {
-          uni.showToast({ title: err?.reason || '投递失败', icon: 'none' })
-        }
-      },
+      input: { value: prefill, placeholder: '粘贴 URL，正文与图片会被抓回来' },
+      confirmText: '抓取',
     })
+    if (!res.confirm) return
+    const url = res.content.trim()
+    if (!/^https?:\/\/\S+$/i.test(url)) {
+      toast('不是有效的链接')
+      return
+    }
+    try {
+      await capture({ content: url, source_type: 'url', source_url: url })
+      toast('开始抓取，稍候刷新查看')
+      if (activeStatus.value !== 'captured' && activeStatus.value !== '') {
+        activeStatus.value = 'captured'
+      }
+      await load()
+    } catch (err: any) {
+      toast(err?.reason || '投递失败')
+    }
   })()
 }
 
 /** 清除：把当前筛选下的碎片全部删除（逐条调删除接口），先确认 */
 function clearCurrent(): void {
-  uni.showModal({
+  void confirmDialog({
     title: '清空当前列表？',
     content: `将删除${activeStatus.value ? '「' + (filters.find((f) => f.value === activeStatus.value)?.label || '') + '」状态下' : '全部'}的 ${total.value} 条碎片，不可恢复`,
     confirmText: '清除',
     cancelText: '取消',
-    success: async (res) => {
-      if (!res.confirm) return
-      working.value = true
-      let n = 0
-      try {
-        // 分页拉全量再逐条删（接口只有单条删除）
-        for (let offset = 0; ; offset += 200) {
-          const page = await apiItems(activeStatus.value || undefined, 200, offset)
-          const batch = page.items.filter((i) => !selected.value.includes(i.id))
-          if (!batch.length) break
-          for (const it of batch) {
-            await removeItem(it.id)
-            n += 1
-          }
-          if (offset + 200 >= page.total) break
+    danger: true,
+  }).then(async (ok) => {
+    if (!ok) return
+    working.value = true
+    let n = 0
+    try {
+      // 分页拉全量再逐条删（接口只有单条删除）
+      for (let offset = 0; ; offset += 200) {
+        const page = await apiItems(activeStatus.value || undefined, 200, offset)
+        const batch = page.items.filter((i) => !selected.value.includes(i.id))
+        if (!batch.length) break
+        for (const it of batch) {
+          await removeItem(it.id)
+          n += 1
         }
-        uni.showToast({ title: `已清除 ${n} 条`, icon: 'none' })
-        selected.value = []
-        await load()
-      } catch (err: any) {
-        uni.showToast({ title: err?.reason || `清除失败（已删 ${n} 条）`, icon: 'none' })
-      } finally {
-        working.value = false
+        if (offset + 200 >= page.total) break
       }
-    },
+      toast(`已清除 ${n} 条`)
+      selected.value = []
+      await load()
+    } catch (err: any) {
+      toast(err?.reason || `清除失败（已删 ${n} 条）`)
+    } finally {
+      working.value = false
+    }
   })
 }
 
 function remove(item: InboxItem): void {
-  uni.showModal({
+  void confirmDialog({
     title: '删除碎片',
     content: '删除后不可恢复，确定吗？',
-    success: async (res) => {
-      if (!res.confirm) return
-      try {
-        await removeItem(item.id)
-        list.value = list.value.filter((i) => i.id !== item.id)
-        uni.showToast({ title: '已删除', icon: 'none' })
-      } catch (err: any) {
-        uni.showToast({ title: err?.reason || '删除失败', icon: 'none' })
-      }
-    },
+    confirmText: '删除',
+    danger: true,
+  }).then(async (ok) => {
+    if (!ok) return
+    try {
+      await removeItem(item.id)
+      list.value = list.value.filter((i) => i.id !== item.id)
+      toast('已删除')
+    } catch (err: any) {
+      toast(err?.reason || '删除失败')
+    }
   })
 }
 
 async function runDispatch(ids: string[]): Promise<void> {
   if (working.value) return
   working.value = true
+  let docId = ''
   try {
     const res = await dispatch(ids)
-    const docId = res.doc_id || (res.doc && res.doc.id) || ''
+    docId = res.doc_id || (res.doc && res.doc.id) || ''
     selected.value = []
     await load()
-    uni.showModal({
-      title: '已整理成草稿',
-      content: '草稿已生成，去编辑还是留在碎片箱？',
-      confirmText: '去编辑',
-      cancelText: '留下',
-      success: (r) => {
-        if (r.confirm && docId) {
-          uni.navigateTo({ url: `/pages/edit/index?id=${encodeURIComponent(docId)}` })
-        }
-      },
-    })
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || '整理失败', icon: 'none' })
+    toast(err?.reason || '整理失败')
+    return
   } finally {
+    // 锁只圈住「请求 + 刷新」这一段。等待用户点确认框的那几秒不该占着锁——
+    // 否则用户不点、或者中途按返回，working 会永远卡在 true，整页再也点不动
     working.value = false
   }
+  // 结果需要一个选择而不是提示：做成确认框，顺手把「去编辑」变成一条路径
+  void confirmDialog({
+    title: '已整理成草稿',
+    content: '草稿已生成，去编辑还是留在碎片箱？',
+    confirmText: '去编辑',
+    cancelText: '留下',
+  }).then((goEdit) => {
+    if (goEdit && docId) {
+      uni.navigateTo({ url: `/pages/edit/index?id=${encodeURIComponent(docId)}` })
+    }
+  })
 }
 
 function dispatchOne(item: InboxItem): void {

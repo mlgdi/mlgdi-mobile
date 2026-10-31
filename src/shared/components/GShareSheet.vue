@@ -11,6 +11,7 @@ import { ref, watch } from 'vue'
 import GIcon from './GIcon.vue'
 import { resolvedTheme } from '../theme'
 
+import { toast } from '../ui/feedback'
 const props = withDefaults(
   defineProps<{
     open: boolean
@@ -48,7 +49,7 @@ function copyLink(): void {
       }, 500)
     },
     fail: () => {
-      uni.showToast({ title: '复制失败', icon: 'none' })
+      toast('复制失败')
     },
   })
 }

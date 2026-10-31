@@ -18,7 +18,14 @@ export interface LoginResult {
 }
 
 export function login(payload: LoginPayload): Promise<LoginResult> {
-  return request<LoginResult>({ method: 'POST', path: '/api/v1/auth/login', body: payload, auth: false })
+  // 登录按钮自己有 submitting 状态
+  return request<LoginResult>({
+    method: 'POST',
+    path: '/api/v1/auth/login',
+    body: payload,
+    auth: false,
+    silent: true,
+  })
 }
 
 /** 退出登录：把 refresh_token 交回服务端，它会吊销本设备（之后的请求 401） */
@@ -27,7 +34,7 @@ export function logout(refreshToken: string | null): Promise<{ ok: boolean; devi
 }
 
 export function me(): Promise<SessionUser & { device_id?: string | null }> {
-  return request({ path: '/api/v1/auth/me' })
+  return request({ path: '/api/v1/auth/me', silent: true })
 }
 
 export interface DeviceRow {
@@ -40,7 +47,7 @@ export interface DeviceRow {
 }
 
 export function listDevices(): Promise<{ devices: DeviceRow[] }> {
-  return request({ path: '/api/v1/auth/devices' })
+  return request({ path: '/api/v1/auth/devices', silent: true })
 }
 
 export function revokeDevice(id: string): Promise<{ ok: boolean }> {

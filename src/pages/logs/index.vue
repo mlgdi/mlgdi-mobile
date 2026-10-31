@@ -11,6 +11,7 @@ import GTopBar from '../../shared/components/GTopBar.vue'
 import GIcon from '../../shared/components/GIcon.vue'
 import { resolvedTheme } from '../../shared/theme'
 import { APP_VERSION } from '../../shared/version'
+import { toast, confirmDialog } from '../../shared/ui/feedback'
 import {
   clearLogs,
   exportLogs,
@@ -39,27 +40,28 @@ onShow(() => {
 function copy(): void {
   const text = exportLogs()
   if (!text) {
-    uni.showToast({ title: '还没有日志', icon: 'none' })
+    toast('还没有日志')
     return
   }
   // 头部加上版本与时间：排查时先要知道这是哪个包、什么时候的
   const head = `渡己 v${APP_VERSION} · ${new Date().toLocaleString()}\n----\n`
   uni.setClipboardData({
     data: head + text,
-    success: () => uni.showToast({ title: '已复制，可直接粘贴发送', icon: 'none' }),
+    success: () => toast('已复制，可直接粘贴发送'),
   })
 }
 
 function clear(): void {
-  uni.showModal({
+  void confirmDialog({
     title: '清空日志',
     content: '清空后不可恢复，确定吗？',
-    success: (res) => {
-      if (!res.confirm) return
-      clearLogs()
-      logs.value = []
-      uni.showToast({ title: '已清空', icon: 'none' })
-    },
+    confirmText: '清空',
+    danger: true,
+  }).then((ok) => {
+    if (!ok) return
+    clearLogs()
+    logs.value = []
+    toast('已清空')
   })
 }
 

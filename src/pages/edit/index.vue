@@ -399,6 +399,7 @@ import { renderMarkdown } from '../../shared/utils/markdown'
 import { resolvedTheme } from '../../shared/theme'
 import { assetUrl } from '../../shared/utils/asset'
 
+import { toast, confirmDialog, beginLoading, endLoading } from '../../shared/ui/feedback'
 const docId = ref('')
 const title = ref('')
 /** 打开时的标题，用来判断标题有没有改过（不改就不发 title 字段） */
@@ -559,18 +560,16 @@ async function back(): Promise<void> {
     leave()
     return
   }
-  uni.showModal({
+  const discard = await confirmDialog({
     title: '没能保存',
     // 把具体原因说出来：只写「没能保存」，用户不知道该改哪
     content: `${saveError.value || '改动还没写进 vault'}。要放弃这些改动退出吗？`,
     confirmText: '放弃退出',
     cancelText: '继续编辑',
-    success: (res) => {
-      if (res.confirm) leave()
-    },
+    danger: true,
   })
+  if (discard) leave()
 }
-
 /** 安卓物理返回键 / 手势返回：走和顶栏箭头同一条路径 */
 onBackPress(() => {
   if (saving.value) return true
@@ -607,7 +606,7 @@ async function load(): Promise<void> {
         : []
     initTagsKey.value = tags.value.join('\u0001')
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || '打开失败', icon: 'none' })
+    toast(err?.reason || '打开失败')
   } finally {
     loading.value = false
   }
@@ -628,14 +627,13 @@ function onVisibility(e: any): void {
  */
 function handleConflict(err: unknown): boolean {
   if (err instanceof ApiError && (err.code === 'DOC_VERSION_CONFLICT' || err.status === 409)) {
-    uni.showModal({
+    void confirmDialog({
       title: '内容已在别处修改',
       content: `${err.reason || '版本不一致'}。建议重新加载后再改。`,
       confirmText: '重新加载',
       cancelText: '留着',
-      success: (res) => {
-        if (res.confirm) load()
-      },
+    }).then((ok) => {
+      if (ok) load()
     })
     return true
   }
@@ -652,7 +650,7 @@ function handleConflict(err: unknown): boolean {
  */
 async function saveAll(opts: { silent?: boolean } = {}): Promise<boolean> {
   if (!dirtyAll.value) {
-    if (!opts.silent) uni.showToast({ title: '没有改动', icon: 'none' })
+    if (!opts.silent) toast('没有改动')
     return true
   }
   if (saving.value) return false
@@ -661,7 +659,7 @@ async function saveAll(opts: { silent?: boolean } = {}): Promise<boolean> {
   const nextTitle = title.value.trim()
   if (!nextTitle) {
     saveError.value = '标题不能为空'
-    if (!opts.silent) uni.showToast({ title: '标题不能为空', icon: 'none' })
+    if (!opts.silent) toast('标题不能为空')
     return false
   }
 
@@ -695,11 +693,11 @@ async function saveAll(opts: { silent?: boolean } = {}): Promise<boolean> {
       initTagsKey.value = tags.value.join('\u0001')
     }
 
-    if (!opts.silent) uni.showToast({ title: '已保存', icon: 'none' })
+    if (!opts.silent) toast('已保存')
     return true
   } catch (err: any) {
     saveError.value = err?.reason || '保存失败'
-    if (!handleConflict(err)) uni.showToast({ title: saveError.value, icon: 'none' })
+    if (!handleConflict(err)) toast(saveError.value)
     return false
   } finally {
     saving.value = false
@@ -707,44 +705,44 @@ async function saveAll(opts: { silent?: boolean } = {}): Promise<boolean> {
 }
 
 function publish(): void {
-  uni.showModal({
+  void confirmDialog({
     title: '发布这篇',
     content: `状态置为「已发布」，可见性「${visibilityLabel.value}」，缺 slug 会自动生成。`,
-    success: async (res) => {
-      if (!res.confirm) return
-      saving.value = true
-      try {
-        // 先落正文（和标题）再切状态：顺序反了会把旧正文一起发出去
-        if (dirty.value) {
-          const r = await updateBody(docId.value, body.value, version.value)
-          version.value = r.doc.version
-          original.value = body.value
-        }
-        const nextTitle = title.value.trim()
-        if (nextTitle && nextTitle !== titleOriginal.value) {
-          const r = await patchMeta(docId.value, {
-            title: nextTitle,
-            base_version: version.value,
-          })
-          version.value = r.doc.version
-          title.value = nextTitle
-          titleOriginal.value = nextTitle
-        }
-        const r = await publishDoc(docId.value, {
-          status: 'published',
-          visibility: visibility.value,
+    confirmText: '发布',
+  }).then(async (ok) => {
+    if (!ok) return
+    saving.value = true
+    try {
+      // 先落正文（和标题）再切状态：顺序反了会把旧正文一起发出去
+      if (dirty.value) {
+        const r = await updateBody(docId.value, body.value, version.value)
+        version.value = r.doc.version
+        original.value = body.value
+      }
+      const nextTitle = title.value.trim()
+      if (nextTitle && nextTitle !== titleOriginal.value) {
+        const r = await patchMeta(docId.value, {
+          title: nextTitle,
           base_version: version.value,
         })
         version.value = r.doc.version
-        status.value = 'published'
-        initStatus.value = 'published'
-        uni.showToast({ title: '已发布', icon: 'none' })
-      } catch (err: any) {
-        if (!handleConflict(err)) uni.showToast({ title: err?.reason || '发布失败', icon: 'none' })
-      } finally {
-        saving.value = false
+        title.value = nextTitle
+        titleOriginal.value = nextTitle
       }
-    },
+      const r = await publishDoc(docId.value, {
+        status: 'published',
+        visibility: visibility.value,
+        base_version: version.value,
+      })
+      version.value = r.doc.version
+      status.value = 'published'
+      initStatus.value = 'published'
+      toast('已发布')
+    } catch (err: any) {
+      if (!handleConflict(err)) toast(err?.reason || '发布失败')
+    } finally {
+      saving.value = false
+    }
   })
 }
 
@@ -899,7 +897,8 @@ function insertCodeBlock(): void {
  */
 async function uploadAsset(localPath: string): Promise<{ path: string; url: string }> {
   const session = readSession()
-  uni.showLoading({ title: '上传中…', mask: true })
+  // 上传是用户按了按钮之后的长动作，浮层立即出现，不必等 0.5 秒
+  beginLoading('上传中…', { delay: 0 })
   try {
     const data = await new Promise<any>((resolve, reject) => {
       uni.uploadFile({
@@ -927,9 +926,8 @@ async function uploadAsset(localPath: string): Promise<{ path: string; url: stri
     })
     return { path: data.path || '', url: data.url || '' }
   } finally {
-    // 必须先关 loading 再 toast：uni 的 loading 与 toast 是同一个组件，
-    // 顺序反了 toast 会被 hideLoading 立刻抹掉（老代码踩过）
-    uni.hideLoading()
+    // 自绘浮层与轻提示是两层独立的 DOM，不再有「hideLoading 把 toast 抹掉」的老问题
+    endLoading()
   }
 }
 
@@ -952,9 +950,9 @@ function pickImage(): void {
       try {
         const data = await uploadAsset(localPath)
         insertBlock(`![](${assetRefOf(data)})`)
-        uni.showToast({ title: '图片已插入', icon: 'none' })
+        toast('图片已插入')
       } catch (err: any) {
-        uni.showToast({ title: err?.message || '上传失败', icon: 'none' })
+        toast(err?.message || '上传失败')
       }
     },
   })
@@ -977,9 +975,9 @@ function pickVideo(): void {
       try {
         const data = await uploadAsset(localPath)
         insertBlock(`![](${assetRefOf(data)})`)
-        uni.showToast({ title: '视频已插入', icon: 'none' })
+        toast('视频已插入')
       } catch (err: any) {
-        uni.showToast({ title: err?.message || '上传失败', icon: 'none' })
+        toast(err?.message || '上传失败')
       }
     },
   })
@@ -1039,9 +1037,9 @@ function pickCover(): void {
         const data = await uploadAsset(localPath)
         if (!data.path) throw new Error('上传未返回路径')
         coverImage.value = data.path
-        uni.showToast({ title: '封面已更新', icon: 'none' })
+        toast('封面已更新')
       } catch (err: any) {
-        uni.showToast({ title: err?.message || '上传失败', icon: 'none' })
+        toast(err?.message || '上传失败')
       }
     },
   })
@@ -1050,7 +1048,7 @@ function pickCover(): void {
 function useCover(img: string): void {
   coverImage.value = img
   coverPick.value = false
-  uni.showToast({ title: '已设为封面', icon: 'none' })
+  toast('已设为封面')
 }
 
 function clearCover(): void {
@@ -1134,7 +1132,7 @@ async function runMeta(kind: 'title' | 'tags'): Promise<void> {
   if (aiLoading.value) return
   const source = aiSource()
   if (source.length < AI_MIN_CHARS) {
-    uni.showToast({ title: '内容太短，AI 缺素材', icon: 'none' })
+    toast('内容太短，AI 缺素材')
     return
   }
   aiMeta.value = kind
@@ -1149,13 +1147,13 @@ async function runMeta(kind: 'title' | 'tags'): Promise<void> {
     aiResult.value = text
     if (kind === 'title') {
       titleCands.value = parseTitleCands(text)
-      if (!titleCands.value.length) uni.showToast({ title: '没有解析出标题', icon: 'none' })
+      if (!titleCands.value.length) toast('没有解析出标题')
     } else {
       aiTagCands.value = parseTagList(text)
-      if (!aiTagCands.value.length) uni.showToast({ title: '没有生成有效标签', icon: 'none' })
+      if (!aiTagCands.value.length) toast('没有生成有效标签')
     }
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || err?.message || '生成失败', icon: 'none' })
+    toast(err?.reason || err?.message || '生成失败')
     aiMeta.value = ''
     aiResult.value = ''
   } finally {
@@ -1169,7 +1167,7 @@ function pickTitle(t: string): void {
   aiOpen.value = false
   aiMeta.value = ''
   titleCands.value = []
-  uni.showToast({ title: '标题已替换', icon: 'none' })
+  toast('标题已替换')
 }
 
 /** 把 AI 生成的标签合并进现有（去重，不覆盖手写的） */
@@ -1180,14 +1178,14 @@ function applyMetaTags(): void {
   aiOpen.value = false
   aiMeta.value = ''
   aiTagCands.value = []
-  uni.showToast({ title: added ? `新增 ${added} 个标签` : '这些标签已经有了', icon: 'none' })
+  toast(added ? `新增 ${added} 个标签` : '这些标签已经有了')
 }
 
 async function genTags(): Promise<void> {
   if (tagAiRunning.value) return
   const source = aiSource()
   if (source.length < AI_MIN_CHARS) {
-    uni.showToast({ title: '内容太短，AI 缺素材', icon: 'none' })
+    toast('内容太短，AI 缺素材')
     return
   }
   tagAiRunning.value = true
@@ -1195,19 +1193,16 @@ async function genTags(): Promise<void> {
     const r = await aiAssist('tags', source)
     const list = parseTagList(r.result || '')
     if (!list.length) {
-      uni.showToast({ title: '没有生成有效标签', icon: 'none' })
+      toast('没有生成有效标签')
       return
     }
     const before = tags.value.length
     // 合并而不是覆盖：用户手写的标签不该被 AI 冲掉
     tags.value = [...new Set([...tags.value, ...list])]
     const added = tags.value.length - before
-    uni.showToast({
-      title: added ? `新增 ${added} 个标签` : '这些标签已经有了',
-      icon: 'none',
-    })
+    toast(added ? `新增 ${added} 个标签` : '这些标签已经有了')
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || err?.message || '生成失败', icon: 'none' })
+    toast(err?.reason || err?.message || '生成失败')
   } finally {
     tagAiRunning.value = false
   }
@@ -1246,7 +1241,7 @@ async function openAi(): Promise<void> {
     selectionActions.value = res.groups.selection || []
     docActions.value = res.groups.doc || []
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || '动作清单加载失败', icon: 'none' })
+    toast(err?.reason || '动作清单加载失败')
   }
 }
 
@@ -1262,7 +1257,7 @@ function closeAi(): void {
 async function runAi(action: AiAction): Promise<void> {
   const source = body.value.trim()
   if (!source) {
-    uni.showToast({ title: '正文为空', icon: 'none' })
+    toast('正文为空')
     return
   }
   aiRunningLabel.value = action.label
@@ -1273,7 +1268,7 @@ async function runAi(action: AiAction): Promise<void> {
     aiResult.value = res.result || ''
   } catch (err: any) {
     // 后端把「为什么失败」（未配模型 / 上游网关）放在 detail.reason，必须优先展示
-    uni.showToast({ title: err?.reason || err?.message || 'AI 调用失败', icon: 'none' })
+    toast(err?.reason || err?.message || 'AI 调用失败')
   } finally {
     aiLoading.value = false
   }
@@ -1285,14 +1280,14 @@ function applyAi(): void {
   body.value = aiResult.value
   aiOpen.value = false
   aiResult.value = ''
-  uni.showToast({ title: '已替换正文', icon: 'none' })
+  toast('已替换正文')
 }
 
 function copyAi(): void {
   if (!aiResult.value) return
   uni.setClipboardData({
     data: aiResult.value,
-    success: () => uni.showToast({ title: '已复制', icon: 'none' }),
+    success: () => toast('已复制'),
   })
 }
 
@@ -1389,7 +1384,7 @@ onLoad((options: any) => {
   docId.value = String((options && options.id) || '')
   loadFabPos()
   if (!docId.value) {
-    uni.showToast({ title: '缺少文档 id', icon: 'none' })
+    toast('缺少文档 id')
     return
   }
   void load()

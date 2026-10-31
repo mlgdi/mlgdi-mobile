@@ -9,6 +9,7 @@
  * 现在只有两类地方要拦：写操作（新建/编辑/投递/管理）和私有数据（碎片箱）。
  */
 import { hasSession } from '../auth/session'
+import { confirmDialog } from '../ui/feedback'
 
 /**
  * 需要登录才能继续的动作入口。
@@ -17,14 +18,13 @@ import { hasSession } from '../auth/session'
  */
 export function requireLogin(message = '这个操作需要登录'): boolean {
   if (hasSession()) return true
-  uni.showModal({
+  void confirmDialog({
     title: '需要登录',
     content: `${message}。仅浏览公开文章不需要登录。`,
     confirmText: '去登录',
     cancelText: '取消',
-    success: (res) => {
-      if (res.confirm) uni.navigateTo({ url: '/pages/login/index' })
-    },
+  }).then((ok) => {
+    if (ok) uni.navigateTo({ url: '/pages/login/index' })
   })
   return false
 }

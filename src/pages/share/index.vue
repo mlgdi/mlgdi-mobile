@@ -23,6 +23,7 @@ import { useSiteStore } from '../../shared/store/site'
 import { isPublicShare, shareUrlOf } from '../../shared/utils/share'
 import { formatDate } from '../../shared/utils/date'
 
+import { toast } from '../../shared/ui/feedback'
 /* 卡片逻辑尺寸（px），导出按 3 倍放大，手机上才够锐 */
 const W = 320
 const PAD = 24
@@ -394,7 +395,7 @@ function shareToWechat(): void {
   // #ifdef APP-PLUS
   const plusAny = (globalThis as any).plus
   if (!plusAny?.share?.sendWithSystem) {
-    uni.showToast({ title: '当前环境不支持系统分享', icon: 'none' })
+    toast('当前环境不支持系统分享')
     return
   }
   plusAny.share.sendWithSystem(
@@ -404,7 +405,7 @@ function shareToWechat(): void {
     },
     () => {
       // 常见原因：没装微信、微信扩展不接受该类型、系统面板被取消
-      uni.showToast({ title: '没调起分享面板，可先保存到相册再发', icon: 'none' })
+      toast('没调起分享面板，可先保存到相册再发')
     },
   )
   // #endif
@@ -415,13 +416,10 @@ function save(): void {
   // #ifdef APP-PLUS
   uni.saveImageToPhotosAlbum({
     filePath: imgPath.value,
-    success: () => uni.showToast({ title: '已保存到相册', icon: 'none' }),
+    success: () => toast('已保存到相册'),
     fail: (err: any) => {
       const msg = String(err?.errMsg || '')
-      uni.showToast({
-        title: msg.includes('auth') || msg.includes('denied') ? '需要相册权限' : '保存失败',
-        icon: 'none',
-      })
+      toast(msg.includes('auth') || msg.includes('denied') ? '需要相册权限' : '保存失败')
     },
   })
   return
@@ -431,7 +429,7 @@ function save(): void {
   a.href = imgPath.value
   a.download = `${doc.value?.title || 'share'}.png`
   a.click()
-  uni.showToast({ title: '已下载图片', icon: 'none' })
+  toast('已下载图片')
   // #endif
 }
 </script>

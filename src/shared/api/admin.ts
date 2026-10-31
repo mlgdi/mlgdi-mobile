@@ -30,7 +30,7 @@ export interface AdminFull {
 
 /** 品牌字段 + 全部栏目（含小类） */
 export function adminColumns(): Promise<AdminFull> {
-  return request({ path: '/api/v1/admin/columns' })
+  return request({ path: '/api/v1/admin/columns', silent: true })
 }
 
 /** 只保存站点品牌字段（栏目原样保留，不会互相覆盖） */
@@ -111,7 +111,7 @@ export interface AdminSubConfig {
 
 /** 列某个目录的直接子目录。parent 可以是栏目根，也可以是任意层级的小类 */
 export function listSubs(parent: string): Promise<{ items: AdminSubDir[]; column: string }> {
-  return request({ path: '/api/v1/admin/subs', query: { parent } })
+  return request({ path: '/api/v1/admin/subs', query: { parent }, silent: true })
 }
 
 /** 新建小类目录（parent 任意层级，mkdir 不写文件） */
@@ -173,7 +173,7 @@ export interface AdminWorkflow {
 }
 
 export function adminAi(): Promise<AdminAi> {
-  return request({ path: '/api/v1/admin/ai' })
+  return request({ path: '/api/v1/admin/ai', silent: true })
 }
 
 /** 密钥传空 = 保持原值（后端不明文回传，前端也不该回传） */
@@ -193,7 +193,7 @@ export function testAdminAi(): Promise<AdminAiTestResult> {
 }
 
 export function adminWorkflows(): Promise<{ engine: string; items: AdminWorkflow[] }> {
-  return request({ path: '/api/v1/admin/workflows' })
+  return request({ path: '/api/v1/admin/workflows', silent: true })
 }
 
 /** 整份回写 workflows.yaml（原子写 + 立即热加载） */

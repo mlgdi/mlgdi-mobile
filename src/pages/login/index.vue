@@ -50,6 +50,7 @@ import { getBaseUrl } from '../../shared/config/server'
 import { hasSession } from '../../shared/auth/session'
 import { resolvedTheme } from '../../shared/theme'
 
+import { toast } from '../../shared/ui/feedback'
 const auth = useAuthStore()
 const username = ref('')
 const password = ref('')
@@ -77,11 +78,11 @@ async function submit(): Promise<void> {
   if (!canSubmit.value || auth.logging) return
   try {
     await auth.login(username.value, password.value)
-    uni.showToast({ title: '已登录', icon: 'none' })
+    toast('已登录')
     setTimeout(leaveLogin, 300)
   } catch (err: any) {
     // 后端 detail.reason 更具体（例如「设备标识已被其他账号占用」），优先展示它
-    uni.showToast({ title: err?.reason || err?.message || '登录失败', icon: 'none', duration: 2600 })
+    toast(err?.reason || err?.message || '登录失败', 2600)
   }
 }
 </script>

@@ -64,6 +64,22 @@ if ($Ahead -gt 0) {
     }
 }
 
+# ---------- preflight: working tree must be clean ----------
+# rev-list only sees COMMITS. Uncommitted edits are completely invisible to it,
+# so a build started with a dirty tree quietly packages the PREVIOUS version:
+# the run succeeds, the artifact is named after the old package.json, and the
+# app on the phone keeps the old version. That is how "0.7.26 never packaged"
+# looked from the outside while every single CI run was green.
+if (-not $SkipBuild -and -not $AllowStale) {
+    $Dirty = Invoke-Git @("status", "--porcelain")
+    if ($Dirty) {
+        $DirtyLines = @($Dirty | Where-Object { "$_".Trim() -ne "" })
+        $Count = $DirtyLines.Count
+        $Sample = ($DirtyLines | Select-Object -First 5) -join " | "
+        throw "Working tree has $Count uncommitted change(s), and the build runs on origin/$Branch - they would NOT be in the package. Commit and push first (git add -A; git commit; git push origin $Branch), or pass -AllowStale to build anyway. First few: $Sample"
+    }
+}
+
 # ---------- token ----------
 if (Test-Path $TokenFile) {
     $Token = (Get-Content $TokenFile -Raw).Trim()

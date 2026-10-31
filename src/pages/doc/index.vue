@@ -244,6 +244,7 @@ import { recordError } from '../../shared/utils/diag'
 import { logError } from '../../shared/utils/logger'
 import { formatDate } from '../../shared/utils/date'
 import { getBaseUrl } from '../../shared/config/server'
+import { confirmDialog, toast, beginLoading, endLoading } from '../../shared/ui/feedback'
 
 /** 编辑/删除/归档：既要有平台能力，也要真的登录了（游客能读不能写） */
 const canEdit = computed(() => capabilities.canEdit && auth.logged)
@@ -349,12 +350,12 @@ async function onPickDir(path: string): Promise<void> {
       // 收集箱里的草稿：走 archive，顺带把它收编的碎片标记归档
       const res = await archiveDoc(d.id, path)
       const extra = res.items_archived ? `，${res.items_archived} 条碎片一并归档` : ''
-      uni.showToast({ title: `已移动到 ${dirName(path)}${extra}`, icon: 'none' })
+      toast(`已移动到 ${dirName(path)}${extra}`)
     } else {
       // 移动是文件级操作：目标要带文件名，后端不替我们拼
       const name = (d.path || '').split('/').pop() || ''
       await moveDoc(d.id, `${path}/${name}`, d.version)
-      uni.showToast({ title: `已移动到 ${dirName(path)}`, icon: 'none' })
+      toast(`已移动到 ${dirName(path)}`)
     }
     dirSheet.value = false
     // 路径变了：正文要重拉（反链、栏目色都跟着变），列表树也得强制刷 ——
@@ -362,7 +363,7 @@ async function onPickDir(path: string): Promise<void> {
     await load()
     void notes.load(true)
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || err?.message || '操作失败', icon: 'none' })
+    toast(err?.reason || err?.message || '操作失败')
   } finally {
     dirBusy.value = false
   }
@@ -516,18 +517,19 @@ async function saveMarkdown(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 320))
   // 立刻给反馈：写文件最快几十毫秒，但要是在这一步卡住，
   // 没有 loading 的话用户看到的就是「点了完全没反应」
-  uni.showLoading({ title: '准备文件…', mask: true })
+  beginLoading('准备文件…', { delay: 0 })
   try {
     const how = await saveMarkdownFile(d.title, d.body, {
-      onFileReady: () => uni.hideLoading(),
+      // 文件已就绪、系统「存储到文件」选择器要弹出来了：先收掉浮层
+      onFileReady: () => endLoading(),
     })
-    uni.hideLoading()
-    if (how === 'downloaded') uni.showToast({ title: '已下载 .md 文件', icon: 'none' })
+    endLoading()
+    if (how === 'downloaded') toast('已下载 .md 文件')
   } catch (e) {
-    uni.hideLoading()
+    endLoading()
     recordError('save-md', (e as Error)?.message || String(e))
     logError('share', `下载 md 失败：${(e as Error)?.message || e}`)
-    uni.showToast({ title: (e as Error)?.message || '保存失败', icon: 'none' })
+    toast((e as Error)?.message || '保存失败')
   }
 }
 
@@ -545,27 +547,26 @@ function shareDoc(): void {
 /** 删除：二次确认，删完回列表 */
 function removeDoc(): void {
   if (!doc.value) return
+  const target = doc.value
   menuOpen.value = false
-  uni.showModal({
+  void confirmDialog({
     title: '删除这篇文档？',
-    content: `「${doc.value.title}」会进回收站，可在网页端恢复`,
+    content: `「${target.title}」会进回收站，可在网页端恢复`,
     confirmText: '删除',
     cancelText: '取消',
-    success: (res) => {
-      if (!res.confirm) return
-      deleteDoc(docId.value)
-        .then(() => {
-          uni.showToast({ title: '已删除', icon: 'none' })
-          setTimeout(() => {
-            const pages = getCurrentPages()
-            if (pages.length > 1) uni.navigateBack()
-            else uni.reLaunch({ url: '/pages/library/index' })
-          }, 500)
-        })
-        .catch((err: any) =>
-          uni.showToast({ title: err?.reason || '删除失败', icon: 'none' }),
-        )
-    },
+    danger: true,
+  }).then((ok) => {
+    if (!ok) return
+    deleteDoc(docId.value)
+      .then(() => {
+        toast('已删除')
+        setTimeout(() => {
+          const pages = getCurrentPages()
+          if (pages.length > 1) uni.navigateBack()
+          else uni.reLaunch({ url: '/pages/library/index' })
+        }, 500)
+      })
+      .catch((err: any) => toast(err?.reason || '删除失败'))
   })
 }
 
@@ -696,7 +697,7 @@ function copyCode(index: number, el?: any): void {
   uni.setClipboardData({
     data: text,
     success: () => {
-      uni.showToast({ title: '代码已复制', icon: 'none' })
+      toast('代码已复制')
       try {
         if (el && typeof el.textContent === 'string') {
           const prev = el.textContent
@@ -767,14 +768,14 @@ async function openWikilink(title: string): Promise<void> {
   if (id) {
     openDoc(id)
   } else {
-    uni.showToast({ title: `未找到：${title}`, icon: 'none' })
+    toast(`未找到：${title}`)
   }
 }
 
 function copyLink(url: string): void {
   uni.setClipboardData({
     data: url,
-    success: () => uni.showToast({ title: '外部链接已复制', icon: 'none' }),
+    success: () => toast('外部链接已复制'),
   })
 }
 

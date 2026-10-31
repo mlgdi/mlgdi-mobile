@@ -1,4 +1,5 @@
 import { log, logError } from './logger'
+import { recordExport } from './diag'
 
 /**
  * 把正文导出成 `.md` 文件，存到用户自己能找到的地方（App 端是「文件」App）。
@@ -64,53 +65,51 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
 function toAbsolute(local: string): string {
   const plusAny = (globalThis as any).plus
   try {
-    const url = String(plusAny?.io?.convertLocalFileURL?.(local) || local)
+    // 注意方法名是 convertLocalFileSystemURL（带 System）。
+    // 之前写成 convertLocalFileURL，可选链拿到 undefined 就静默退回原值，
+    // 于是把 `_doc/xx.md` 当绝对路径交给了系统面板 —— 面板照弹，但指向不存在的文件。
+    const url = String(plusAny?.io?.convertLocalFileSystemURL?.(local) || local)
     return url.replace(/^file:\/\//, '')
   } catch {
     return local
   }
 }
 
+/** 读文件真实字节数；读不到返回 -1 */
+function fileSize(entry: any): Promise<number> {
+  return new Promise((resolve) => {
+    try {
+      entry.file(
+        (f: any) => resolve(Number(f?.size) || 0),
+        () => resolve(-1),
+      )
+    } catch {
+      resolve(-1)
+    }
+  })
+}
+
 /**
- * 写 `_doc/<name>`，返回绝对路径。
+ * 往某个文件系统根下写文件，返回绝对路径与实际大小。
  *
- * 优先 `uni.getFileSystemManager().writeFile`：它是 uni 封装的 fs 接口，
- * 成功/失败回调用法明确，`encoding: 'utf8'` 也直白。**plus.io 那套
- * （requestFileSystem → getFile → createWriter）在 iOS 上有回调不回来的情况 ——
- * 表现就是你看到的「点了下载毫无反应」**：既没报错也没面板，Promise 永远挂着。
- * 所以在它下面还加了一层超时，任何一步不回来都会在 8 秒后变成可读的错误。
+ * `dirName` 为空表示直接写在根下；否则先建（或复用）这个子目录。
  */
-function writeDocFile(name: string, text: string): Promise<string> {
-  const local = `_doc/${name}`
-
-  const viaFsm = (): Promise<void> => {
-    const fsm: any = (uni as any).getFileSystemManager?.()
-    if (!fsm?.writeFile) return Promise.reject(new Error('no-fsm'))
-    return new Promise<void>((resolve, reject) => {
-      fsm.writeFile({
-        filePath: local,
-        data: text,
-        encoding: 'utf8',
-        success: () => resolve(),
-        fail: (e: any) => reject(new Error(String(e?.errMsg || '写入失败'))),
-      })
-    })
-  }
-
-  const viaPlusIO = (): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const plusAny = (globalThis as any).plus
-      if (!plusAny?.io) {
-        reject(new Error('当前环境不支持写入文件'))
-        return
-      }
-      plusAny.io.requestFileSystem(
-        plusAny.io.PRIVATE_DOC,
-        (fs: any) => {
+function writeOne(
+  fsConst: number,
+  dirName: string,
+  name: string,
+  text: string,
+): Promise<{ abs: string; size: number }> {
+  return new Promise((resolve, reject) => {
+    const io = plusIO()
+    io.requestFileSystem(
+      fsConst,
+      (fs: any) => {
+        const putFile = (dirEntry: any): void => {
           // 先删再建，而不是 truncate 后重写：新建的空文件上 truncate(0)
           // 有时不触发 onwrite；而同名文件不清空，短内容会把上一次的字留在尾部。
           const create = (): void => {
-            fs.root.getFile(
+            dirEntry.getFile(
               name,
               { create: true },
               (entry: any) => {
@@ -118,7 +117,8 @@ function writeDocFile(name: string, text: string): Promise<string> {
                   (writer: any) => {
                     writer.onwrite = () => {
                       const raw = String(entry.fullPath || '')
-                      resolve(raw.startsWith('/') ? raw : toAbsolute(raw))
+                      const abs = raw.startsWith('/') ? raw : toAbsolute(raw)
+                      void fileSize(entry).then((size) => resolve({ abs, size }))
                     }
                     writer.onerror = () => reject(new Error('写入 Markdown 失败'))
                     writer.write(text)
@@ -129,30 +129,68 @@ function writeDocFile(name: string, text: string): Promise<string> {
               () => reject(new Error('无法创建文件')),
             )
           }
+          dirEntry.getFile(name, { create: false }, (old: any) => old.remove(create, create), create)
+        }
 
-          fs.root.getFile(
-            name,
-            { create: false },
-            (old: any) => old.remove(create, create),
-            create, // 不存在才算正常，直接建
-          )
-        },
-        () => reject(new Error('无法访问应用目录')),
-      )
-    })
+        if (!dirName) {
+          putFile(fs.root)
+          return
+        }
+        fs.root.getDirectory(
+          dirName,
+          { create: true },
+          (d: any) => putFile(d),
+          () => reject(new Error('无法创建导出目录')),
+        )
+      },
+      () => reject(new Error('无法访问应用目录')),
+    )
+  })
+}
+
+function plusIO(): any {
+  return (globalThis as any).plus?.io
+}
+
+/**
+ * 把正文写成一个 .md 文件，返回绝对路径与真实字节数。
+ *
+ * 落点**优先 Documents/Exports/**，不是 `_doc/`：
+ * - `_doc` 在 iOS 上是 `Library/Pandora/apps/<appid>/doc`，用户根本看不到；
+ * - Documents 是系统认可的用户目录，配合 Info.plist 的
+ *   `UIFileSharingEnabled`，「文件」App → 我的 iPhone → 渡己 → Exports
+ *   里直接就能看到这个文件。**「下载」的第一诉求是拿到文件，
+ *   而不是每次都过一遍「存储到文件」面板**；
+ * - 弹选择器保留，作为「另存到 iCloud / 其他 App」的第二条路。
+ * 写不进 Documents 时退回 `_doc/`，至少还能交给选择器。
+ *
+ * 不再尝试 `uni.getFileSystemManager()`：那是小程序 API，App 端根本不存在
+ * （诊断页一直显示「不可用」就是这个原因），先调它只是白试一次。
+ */
+async function writeDocFile(name: string, text: string): Promise<{ abs: string; size: number }> {
+  const io = plusIO()
+  if (!io) throw new Error('当前环境不支持写入文件')
+
+  const targets: { fsConst: number; dir: string }[] = []
+  if (io.PUBLIC_DOCUMENTS !== undefined) {
+    targets.push({ fsConst: io.PUBLIC_DOCUMENTS, dir: 'Exports' })
   }
+  targets.push({ fsConst: io.PRIVATE_DOC, dir: '' })
 
-  return (async () => {
+  let lastError: Error | null = null
+  for (const target of targets) {
     try {
-      await withTimeout(viaFsm(), 8000, '写入文件超时，请重试')
-      return toAbsolute(local)
+      return await withTimeout(
+        writeOne(target.fsConst, target.dir, name, text),
+        8000,
+        '写入文件超时，请重试',
+      )
     } catch (e) {
-      // FileSystemManager 不可用才退回 plus.io；它自身失败（含超时）直接上抛，
-      // 不要用第二套大概率同样卡住的实现再等 8 秒
-      if (String((e as Error)?.message || '') !== 'no-fsm') throw e
+      lastError = e as Error
+      logError('md', `写入 ${target.dir || '根目录'} 失败：${lastError?.message || lastError}`)
     }
-    return withTimeout(viaPlusIO(), 8000, '写入文件超时，请重试')
-  })()
+  }
+  throw lastError || new Error('写入文件失败')
 }
 
 /**
@@ -232,8 +270,6 @@ function presentFilePicker(absPath: string): void {
 
   const NSURL = ios.importClass('NSURL')
   const url = NSURL.fileURLWithPath(absPath)
-  const NSArray = ios.importClass('NSArray')
-  const urls = NSArray.arrayWithObject(url)
 
   const PickerClass = ios.importClass('UIDocumentPickerViewController')
   let picker: any
@@ -244,8 +280,19 @@ function presentFilePicker(absPath: string): void {
   }
   if (!picker) throw new Error('无法创建文件选择器')
 
+  // NSArray 的类方法在某些基座上拿不到包装（返回 undefined 而不是抛错），
+  // 那样 initForExportingURLs:asCopy: 会收到 nil —— 面板照弹，但里面是空的。
+  // 拿不到就退回单 URL 的构造器，宁可少一个参数，也别给一个空面板。
+  let urls: any = null
+  try {
+    const NSArray = ios.importClass('NSArray')
+    urls = NSArray.arrayWithObject(url)
+  } catch {
+    urls = null
+  }
+
   const major = parseInt(String(plusAny.os?.version || '0'), 10) || 0
-  if (major >= 14) {
+  if (major >= 14 && urls) {
     ios.invoke(picker, 'initForExportingURLs:asCopy:', urls, true)
   } else {
     // 1 = UIDocumentPickerModeExportToService
@@ -295,14 +342,23 @@ export async function saveMarkdownFile(
     logError('md', `平台不支持：plus=${Boolean(plusAny)} ios=${Boolean(plusAny?.ios)}`)
     throw new Error('当前平台暂不支持保存文件')
   }
-  let abs = ''
+  let written: { abs: string; size: number }
   try {
-    abs = await writeDocFile(name, text)
+    written = await writeDocFile(name, text)
   } catch (e) {
     logError('md', `写入失败：${(e as Error)?.message || e}`)
     throw e
   }
-  log('md', `写入成功：${abs}`)
+  log('md', `写入成功：${written.abs}（${written.size} 字节 / 正文 ${text.length} 字）`)
+  // 留在诊断页：用户下次说「下载没成功」时，这一行能直接指出是写入、还是面板的问题
+  recordExport({ name, path: written.abs, size: written.size, expect: text.length })
+  // plus.io 偶尔「onwrite 回调成功、内容却没落盘」：文件存在但 0 字节。
+  // 这种时候弹选择器只会让用户存下一个空文件，不如当场报错。
+  if (text.length > 0 && written.size === 0) {
+    logError('md', '文件写入为空（0 字节）')
+    throw new Error('文件写入为空，请重试')
+  }
+  const abs = written.abs
   // 文件落地了：让调用方先收掉 loading，再弹系统选择器。
   // 系统选择器是 modal，loading 压在它下面会一直转，看起来像卡死。
   opts.onFileReady?.()

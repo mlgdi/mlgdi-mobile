@@ -46,18 +46,26 @@ async function fillTextarea(page, selector, value) {
   await page.locator(selector).first().fill(value)
 }
 
+/**
+ * 点掉当前的自绘确认框。
+ *
+ * 0.7.26 起 showModal 换成了 app 内自绘的 `.go-dialog`（原生弹窗改不了背景色，
+ * 浅色模式下和页面糊成一片）。选择器随之变化，语义不变：点主按钮 + 等它真的消失。
+ */
 async function confirmModal(page) {
-  const primary = page.locator('.uni-modal__btn_primary').last()
+  const layer = page.locator('.go-dialog-layer').last()
+  await layer.waitFor({ state: 'visible', timeout: 8000 })
+  const primary = layer.locator('.go-dialog-btn.is-strong').last()
   if (await primary.count()) {
     await primary.click()
   } else {
-    const buttons = page.locator('.uni-modal__btn')
+    const buttons = layer.locator('.go-dialog-btn')
     const count = await buttons.count()
-    if (!count) throw new Error('modal 里没有按钮')
+    if (!count) throw new Error('确认框里没有按钮')
     await buttons.nth(count - 1).click()
   }
   // 遮罩必须真的消失，否则后续断言会被「挡住了但仍然可见」骗过去
-  await page.locator('.uni-modal').first().waitFor({ state: 'hidden', timeout: 5000 })
+  await layer.waitFor({ state: 'detached', timeout: 5000 })
 }
 
 /** 用 App 自己存的凭证调接口（清理测试数据用） */
@@ -330,7 +338,7 @@ try {
   const item = page.locator('.item').filter({ hasText: stamp }).first()
   await item.locator('text=整理成文').click()
   await page.waitForTimeout(2500)
-  await page.locator('.uni-modal__btn_primary').last().click() // 去编辑
+  await confirmModal(page) // 去编辑
   await page.waitForTimeout(2500)
   const inEdit = await page.locator('.paper-body').first().isVisible()
   log('整理成文 → 进入编辑器', inEdit)

@@ -33,5 +33,6 @@ export interface SiteInfo {
 }
 
 export function site(): Promise<SiteInfo> {
-  return request({ path: '/api/v1/site' })
+  // 启动与首页都会拉，界面自己会渲染，不该弹浮层
+  return request({ path: '/api/v1/site', silent: true })
 }

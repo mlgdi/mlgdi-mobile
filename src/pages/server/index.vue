@@ -63,6 +63,7 @@ import {
 } from '../../shared/config/server'
 import { resolvedTheme } from '../../shared/theme'
 
+import { toast, showDialog } from '../../shared/ui/feedback'
 const input = ref(getBaseUrl())
 const probing = ref(false)
 const probeResult = ref<ProbeResult | null>(null)
@@ -79,7 +80,7 @@ function back(): void {
 
 async function probe(): Promise<void> {
   if (!valid.value) {
-    uni.showToast({ title: '地址格式不对', icon: 'none' })
+    toast('地址格式不对')
     return
   }
   probing.value = true
@@ -96,23 +97,24 @@ function save(): void {
   const url = normalizeBaseUrl(input.value)
   const changed = url !== getBaseUrl()
 
-  uni.showModal({
+  void showDialog({
     title: '切换服务器',
     content: changed
       ? `切换到 ${url}\n\n各服务器的登录态独立保存，切回来时原来的登录仍有效。`
       : '地址没有变化。',
-    showCancel: changed,
-    success: (res) => {
-      if (changed && !res.confirm) return
-      try {
-        setBaseUrl(url)
-      } catch (err: any) {
-        uni.showToast({ title: err?.message || '保存失败', icon: 'none' })
-        return
-      }
-      // 换服务器相当于换了身份域：回登录页让用户用新地址重新认证
-      uni.reLaunch({ url: '/pages/login/index' })
-    },
+    // 地址没变时只有一个「知道了」：没有选择可做，就不该出现取消按钮
+    alertOnly: !changed,
+    confirmText: changed ? '切换' : '知道了',
+  }).then((r) => {
+    if (changed && !r.confirm) return
+    try {
+      setBaseUrl(url)
+    } catch (err: any) {
+      toast(err?.message || '保存失败')
+      return
+    }
+    // 换服务器相当于换了身份域：回登录页让用户用新地址重新认证
+    uni.reLaunch({ url: '/pages/login/index' })
   })
 }
 

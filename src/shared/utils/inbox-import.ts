@@ -38,11 +38,84 @@ const TEXT_EXT = /\.(md|markdown|mkd|txt|text)$/i
 /** 单篇上限：Inbox 里出现几 MB 的文本，多半是用户选错了文件 */
 const MAX_CHARS = 4 * 1024 * 1024
 
-/** uni 的 `_doc` 就是 App 的 Documents 目录，iOS 的 Inbox 在它下面 */
-const INBOX_DIR = '_doc/Inbox/'
+/**
+ * ⚠️ 这里曾经写成 `_doc/Inbox/`，是**错的**，也是「共享进来永远 0 个文件」的根因。
+ *
+ * `_doc` 是 DCloud 自己的私有目录，iOS 上实际落在
+ * `Library/Pandora/apps/<appid>/doc`（下载 Markdown 的日志里能看到这个绝对路径）。
+ * 而系统做 document interaction 时，只会把外来的文件复制进
+ * **`<sandbox>/Documents/Inbox/`** —— 也就是 `_documents/Inbox/`。
+ * 两者隔着好几层目录，扫前者永远扫不到东西。
+ *
+ * App 在 Info.plist 里声明了 `CFBundleDocumentTypes` 且
+ * `LSSupportsOpeningDocumentsInPlace = false`，所以「文件」App 里长按 .md →
+ * 共享 → 渡己，系统走的就是「复制到 Documents/Inbox」这条路。
+ */
+const DOCS_INBOX = '_documents/Inbox/'
+
+/**
+ * 历史路径，留作兜底。
+ *
+ * 不直接删：万一某个基座把 `_doc` 映射到了 Documents，或者用户手上还有
+ * 旧版本残留在那里，多扫一处不会错 —— 代价只是一次目录读取。
+ */
+const LEGACY_INBOX = '_doc/Inbox/'
 
 function plusIO(): any {
   return (globalThis as any).plus?.io
+}
+
+/**
+ * App 的 Documents 绝对路径（iOS：`/var/mobile/.../Documents`）。
+ *
+ * 为什么要拿绝对路径而不是只用 `_documents/` 前缀：诊断页要把真实位置印出来，
+ * 而且 `resolveLocalFileSystemURL` 对前缀的解析在不同基座上不完全一致，
+ * 用绝对路径最没歧义。
+ */
+function publicDocumentsRoot(): Promise<string> {
+  return new Promise((resolve) => {
+    const io = plusIO()
+    if (!io?.requestFileSystem || io.PUBLIC_DOCUMENTS === undefined) {
+      resolve('')
+      return
+    }
+    // plus.io 的回调在个别基座上不回来，而这里挡在「扫 Inbox」的最前面：
+    // 一旦挂住，导入页会一直空白，比拿错目录更难查。1.5 秒没结果就走兜底。
+    let done = false
+    const finish = (value: string): void => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      resolve(value)
+    }
+    const timer = setTimeout(() => finish(''), 1500)
+    try {
+      io.requestFileSystem(
+        io.PUBLIC_DOCUMENTS,
+        (fs: any) => finish(String(fs?.root?.fullPath || '').replace(/\/+$/, '')),
+        () => finish(''),
+      )
+    } catch {
+      finish('')
+    }
+  })
+}
+
+let cachedInboxDirs: string[] | null = null
+
+/** 要扫描的目录（绝对路径优先，`_doc/Inbox` 兜底）。 */
+async function inboxDirs(): Promise<string[]> {
+  if (cachedInboxDirs) return cachedInboxDirs
+  const root = await publicDocumentsRoot()
+  // 只认真正的绝对路径。拿到 "/" 或相对串时拼出来的是系统根或错误位置，
+  // 宁可退回 `_documents/Inbox/` 这个 uni 前缀
+  if (root.startsWith('/') && root.length > 1) {
+    // 拿到绝对路径才缓存。冷启动时 plus.io 可能还没完全就绪，
+    // 把「没拿到」的结果缓存下来，会让整个会话都扫错位置
+    cachedInboxDirs = [`${root}/Inbox`, LEGACY_INBOX]
+    return cachedInboxDirs
+  }
+  return [DOCS_INBOX, LEGACY_INBOX]
 }
 
 /** 列目录。`readEntries` 一次最多返回 100 条，必须循环读到空数组为止 */
@@ -98,27 +171,34 @@ function readText(entry: any): Promise<string> {
 /** 扫 Inbox，返回可以导入的文本文件（按名字排序，顺序稳定便于「跳过」） */
 export async function listInboxDocs(): Promise<InboxDoc[]> {
   // #ifdef APP-PLUS
-  const entries = await listEntries(INBOX_DIR)
-  log('inbox', `扫描 ${INBOX_DIR}：${entries.length} 个条目`)
+  const dirs = await inboxDirs()
   const docs: InboxDoc[] = []
+  const seen = new Set<string>()
 
-  for (const entry of entries) {
-    if (!entry?.isFile) continue
-    const name = String(entry.name || '')
-    if (!TEXT_EXT.test(name)) continue
-    const text = await readText(entry).catch((e) => {
-      logError('inbox', `${name} 读取失败：${e?.message || e}`)
-      return ''
-    })
-    if (!text.trim() || text.length > MAX_CHARS) {
-      log('inbox', `${name} 跳过（${text ? '超过大小上限' : '内容为空'}）`)
-      continue
+  for (const dir of dirs) {
+    const entries = await listEntries(dir)
+    log('inbox', `扫描 ${dir}：${entries.length} 个条目`)
+    for (const entry of entries) {
+      if (!entry?.isFile) continue
+      const name = String(entry.name || '')
+      if (!TEXT_EXT.test(name)) continue
+      // 两个目录都可能是真的，同名只认先扫到的那个（Documents 优先）
+      if (seen.has(name)) continue
+      seen.add(name)
+      const text = await readText(entry).catch((e) => {
+        logError('inbox', `${name} 读取失败：${e?.message || e}`)
+        return ''
+      })
+      if (!text.trim() || text.length > MAX_CHARS) {
+        log('inbox', `${name} 跳过（${text ? '超过大小上限' : '内容为空'}）`)
+        continue
+      }
+      docs.push({
+        name,
+        path: String(entry.fullPath || `${dir}${name}`),
+        text,
+      })
     }
-    docs.push({
-      name,
-      path: String(entry.fullPath || `${INBOX_DIR}${name}`),
-      text,
-    })
   }
 
   docs.sort((a, b) => a.name.localeCompare(b.name))
@@ -184,36 +264,61 @@ function whenPlusReady(timeout = 3000): Promise<void> {
 }
 
 /** Inbox 目录，导入页在空态里显示它，便于判断「系统有没有把文件拷进来」 */
-export const INBOX_PATH = INBOX_DIR
+export const INBOX_PATH = DOCS_INBOX
+
+export interface InboxDirStat {
+  dir: string
+  total: number
+}
 
 export interface InboxDiagnostics {
+  /** 实际扫描的主目录（正常情况下是 Documents/Inbox） */
   dir: string
-  /** 目录里的文件总数（含非文本） */
+  /** 主目录解析出的绝对路径；拿不到为空串 */
+  absDir: string
   total: number
-  /** 其中能被导入的数量 */
   usable: number
   names: string[]
+  /** 其余兜底目录的条目数：用来判断「文件到底进了哪个位置」 */
+  others: InboxDirStat[]
 }
 
 /**
  * 诊断用：Inbox 里到底有什么。
  *
- * 「跳转到 App 后没有反应」只有两种可能 —— 系统没把文件拷进来（total=0），
- * 或者拷进来了但不是文本（total>0 / usable=0）。把数字摆出来就不用猜了。
+ * 「跳转到 App 后没有反应」只有三种可能 —— 系统没把文件拷进来（total=0）、
+ * 拷到了另一个目录（others 里有数）、或者拷进来了但不是文本
+ * （total>0 / usable=0）。把三组数字摆出来就不用猜了。
  */
 export async function inboxDiagnostics(): Promise<InboxDiagnostics> {
   // #ifdef APP-PLUS
   await whenPlusReady()
-  const entries = await listEntries(INBOX_DIR)
-  const names = entries.filter((e) => e?.isFile).map((e) => String(e.name || ''))
+  const dirs = await inboxDirs()
+  const names: string[] = []
+  const others: InboxDirStat[] = []
+
+  for (let i = 0; i < dirs.length; i += 1) {
+    const entries = await listEntries(dirs[i])
+    const files = entries.filter((e) => e?.isFile).map((e) => String(e.name || ''))
+    if (i === 0) {
+      names.push(...files)
+    } else {
+      others.push({ dir: dirs[i], total: files.length })
+      for (const n of files) if (!names.includes(n)) names.push(n)
+    }
+  }
+
+  const main = dirs[0] || DOCS_INBOX
   return {
-    dir: INBOX_DIR,
+    dir: main,
+    absDir: main.startsWith('/') ? main : '',
     total: names.length,
     usable: names.filter((n) => TEXT_EXT.test(n)).length,
     names,
+    others,
   }
   // #endif
-  return { dir: INBOX_DIR, total: 0, usable: 0, names: [] }
+  return { dir: DOCS_INBOX, absDir: '', total: 0, usable: 0, names: [], others: [] }
 }
 
 let lastCheck = 0

@@ -41,7 +41,8 @@ export function items(
   limit = 15,
   offset = 0,
 ): Promise<{ items: InboxItem[]; total: number }> {
-  return request({ path: '/api/v1/inbox/items', query: { status, limit, offset } })
+  // 列表自身有骨架/下拉指示器，且翻页时不该整屏闪一下
+  return request({ path: '/api/v1/inbox/items', query: { status, limit, offset }, silent: true })
 }
 
 export function removeItem(id: string): Promise<{ ok: boolean }> {

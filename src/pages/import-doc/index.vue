@@ -28,6 +28,7 @@ import { createDoc } from '../../shared/api/notes'
 import { useNotesStore } from '../../shared/store/notes'
 import { requireLogin } from '../../shared/utils/guard'
 
+import { toast } from '../../shared/ui/feedback'
 const notes = useNotesStore()
 
 /** 待处理队列：处理完一篇就出队，全部处理完才返回 */
@@ -102,7 +103,7 @@ async function finishOne(): Promise<void> {
   if (queue.value.length) return
   // 存为文章后首页要立刻看得到：notes 有 5 分钟缓存，必须 force
   await notes.load(true)
-  uni.showToast({ title: '已导入', icon: 'none' })
+  toast('已导入')
   setTimeout(() => uni.navigateBack(), 500)
 }
 
@@ -114,11 +115,11 @@ async function saveAsFragment(): Promise<void> {
       content: current.value.text,
       source_meta: { name: current.value.name, from: 'file-import' },
     })
-    uni.showToast({ title: '已存进碎片箱', icon: 'none' })
+    toast('已存进碎片箱')
     await finishOne()
   } catch (e) {
     busy.value = false
-    uni.showToast({ title: (e as Error)?.message || '投递失败', icon: 'none' })
+    toast((e as Error)?.message || '投递失败')
   }
 }
 
@@ -139,11 +140,11 @@ async function saveAsDoc(path: string): Promise<void> {
       template: 'post',
       body: current.value.text,
     })
-    uni.showToast({ title: `已存到 ${path.split('/').pop()}`, icon: 'none' })
+    toast(`已存到 ${path.split('/').pop()}`)
     await finishOne()
   } catch (e) {
     busy.value = false
-    uni.showToast({ title: (e as Error)?.message || '创建失败', icon: 'none' })
+    toast((e as Error)?.message || '创建失败')
   }
 }
 

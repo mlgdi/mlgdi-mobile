@@ -65,15 +65,18 @@ export interface DocDetail extends DocBrief {
 
 /** 索引版本号：磁盘/别处写入后自增，用来判断要不要重拉列表 */
 export function indexVersion(): Promise<{ version: number }> {
-  return request({ path: '/api/v1/notes/version' })
+  // 15 秒一次的后台轮询：用户没发起任何动作，绝不能因此闪一个 loading
+  return request({ path: '/api/v1/notes/version', silent: true })
 }
 
 export function tree(): Promise<{ roots: TreeNode[] }> {
-  return request({ path: '/api/v1/notes/tree' })
+  // 列表页有自己的占位与缓存，再叠全屏浮层就是双重指示
+  return request({ path: '/api/v1/notes/tree', silent: true })
 }
 
 export function doc(id: string): Promise<DocDetail> {
-  return request({ path: '/api/v1/notes/doc', query: { id } })
+  // 阅读页/编辑页进来就有「正在打开…」，同理
+  return request({ path: '/api/v1/notes/doc', query: { id }, silent: true })
 }
 
 export interface SearchHit {
@@ -175,6 +178,8 @@ export function shareCard(id: string, column: string, color: string): Promise<st
     path: '/api/v1/notes/share-card',
     query: { id, column, color },
     timeout: 60000,
+    // 分享页自己画了「正在生成」，不要让全屏浮层再压一层
+    silent: true,
   })
 }
 

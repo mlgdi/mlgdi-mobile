@@ -11,6 +11,7 @@ import GTopBar from '../../shared/components/GTopBar.vue'
 import GIcon from '../../shared/components/GIcon.vue'
 import { resolvedTheme } from '../../shared/theme'
 import { APP_VERSION } from '../../shared/version'
+import { toast } from '../../shared/ui/feedback'
 import {
   clearErrors,
   collectEnv,
@@ -40,7 +41,7 @@ async function refresh(): Promise<void> {
 function clear(): void {
   clearErrors()
   errors.value = []
-  uni.showToast({ title: '已清空', icon: 'none' })
+  toast('已清空')
 }
 
 function back(): void {
@@ -76,8 +77,10 @@ function back(): void {
         </view>
         <view class="row">
           <text class="k">FileSystemManager</text>
-          <text :class="['v', env?.hasFsm ? 'ok' : 'bad']">
-            {{ env?.hasFsm ? '可用' : '不可用' }}
+          <!-- 不是「坏了」：uni.getFileSystemManager 是小程序 API，App 端本来就没有。
+               写文件走 plus.io，这一行只留作参考，所以用灰字而不是红字。 -->
+          <text :class="['v', env?.hasFsm ? 'ok' : 'muted']">
+            {{ env?.hasFsm ? '可用' : '不适用（走 plus.io）' }}
           </text>
         </view>
       </view>
@@ -88,6 +91,9 @@ function back(): void {
           <text class="k">路径</text>
           <text class="v mono">{{ env?.inbox.dir || '…' }}</text>
         </view>
+        <view v-if="env?.inbox.absDir" class="abs">
+          <text class="abs-t mono">{{ env.inbox.absDir }}</text>
+        </view>
         <view class="row">
           <text class="k">文件数</text>
           <text :class="['v', env?.inbox.total ? 'ok' : 'warn']">
@@ -97,9 +103,40 @@ function back(): void {
         <view v-if="env?.inbox.names.length" class="names">
           <text v-for="n in env.inbox.names" :key="n" class="name">{{ n }}</text>
         </view>
-        <text v-else class="hint-line">
-          目录为空。从「文件」App 长按 .md → 共享 → 渡己，文件才会出现在这里
+        <!-- 兜底目录：文件被放进别处时，这里会显示条目数 -->
+        <view v-for="o in env?.inbox.others || []" :key="o.dir" class="row">
+          <text class="k mono ellip">{{ o.dir }}</text>
+          <text :class="['v', o.total ? 'warn' : 'muted']">{{ o.total }} 个</text>
+        </view>
+        <text v-if="!env?.inbox.total" class="hint-line">
+          目录为空。从「文件」App 长按 .md → 共享 → 渡己，系统会把文件复制到
+          Documents/Inbox，这里就能看到
         </text>
+      </view>
+
+      <text class="section-label muted">最近导出</text>
+      <view class="card">
+        <view v-if="!env?.lastExport" class="row">
+          <text class="v muted">还没有导出过</text>
+        </view>
+        <template v-else>
+          <view class="row">
+            <text class="k">文件</text>
+            <text class="v ellip">{{ env.lastExport.name }}</text>
+          </view>
+          <view class="row">
+            <text class="k">大小</text>
+            <text :class="['v', env.lastExport.size > 0 ? 'ok' : 'bad']">
+              {{ env.lastExport.size >= 0 ? env.lastExport.size + ' 字节' : '读不到' }}
+            </text>
+          </view>
+          <view class="abs">
+            <text class="abs-t mono">{{ env.lastExport.path }}</text>
+          </view>
+          <text class="hint-line">
+            {{ env.lastExport.at }} · 正文 {{ env.lastExport.expect }} 字
+          </text>
+        </template>
       </view>
 
       <view class="section-head">
@@ -189,6 +226,30 @@ function back(): void {
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--fs-xs);
+}
+
+.ellip {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 绝对路径这种长串：单独一层灰底，别挤在 key-value 行里把两列都撑变形 */
+.abs {
+  padding: 14rpx 0 16rpx;
+  border-bottom: 1px solid var(--line);
+}
+
+.card > .abs:last-child {
+  border-bottom: none;
+}
+
+.abs-t {
+  display: block;
+  font-size: var(--fs-2xs);
+  line-height: 1.6;
+  color: var(--faint);
+  word-break: break-all;
 }
 
 .ok {

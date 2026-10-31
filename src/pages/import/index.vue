@@ -83,6 +83,7 @@ import { guessTitle, pickMarkdownFile, readClipboard } from '../../shared/utils/
 import { useNotesStore } from '../../shared/store/notes'
 import { resolvedTheme } from '../../shared/theme'
 
+import { toast } from '../../shared/ui/feedback'
 const notes = useNotesStore()
 
 const content = ref('')
@@ -138,7 +139,7 @@ function onVisibility(e: any): void {
 async function chooseFile(): Promise<void> {
   const file = await pickMarkdownFile()
   if (!file) {
-    uni.showToast({ title: '没读到文件（可改用剪贴板）', icon: 'none' })
+    toast('没读到文件（可改用剪贴板）')
     return
   }
   fileName.value = file.name
@@ -149,7 +150,7 @@ async function chooseFile(): Promise<void> {
 async function paste(): Promise<void> {
   const text = await readClipboard()
   if (!text.trim()) {
-    uni.showToast({ title: '剪贴板是空的', icon: 'none' })
+    toast('剪贴板是空的')
     return
   }
   content.value = content.value ? `${content.value}\n${text}` : text
@@ -168,7 +169,7 @@ async function submit(): Promise<void> {
       body: content.value,
     })
     const id = res.doc && res.doc.id
-    uni.showToast({ title: '已导入', icon: 'none' })
+    toast('已导入')
     notes.load(true).catch(() => undefined)
     setTimeout(() => {
       if (id) {
@@ -178,7 +179,7 @@ async function submit(): Promise<void> {
       }
     }, 400)
   } catch (err: any) {
-    uni.showToast({ title: err?.reason || err?.message || '导入失败', icon: 'none', duration: 2600 })
+    toast(err?.reason || err?.message || '导入失败', 2600)
   } finally {
     submitting.value = false
   }

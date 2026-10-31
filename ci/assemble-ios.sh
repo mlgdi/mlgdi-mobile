@@ -189,9 +189,18 @@ data["UTImportedTypeDeclarations"] = [
 # 出了 openURL 回调就可能失效；复制进 Inbox 的副本才一直可读。
 data["LSSupportsOpeningDocumentsInPlace"] = False
 
+# 让 App 的 Documents 出现在「文件」App → 我的 iPhone → 渡己 下。两个作用：
+# 1) 导出的 .md 写在 Documents/Exports/，用户不必每次都走「存储到文件」面板
+#    也能拿到文件 —— 这是「下载」该有的样子；
+# 2) 共享进来的文件落在 Documents/Inbox/，用户能亲眼看到它到底到没到。
+# 注意：不加 LSSupportsOpeningDocumentsInPlace，否则系统会改成原地打开、
+# 不再复制进 Inbox，反而把「共享接收」这条路堵死。
+data["UIFileSharingEnabled"] = True
+
 p.write_bytes(plistlib.dumps(data))
 print("CFBundleURLTypes: mlgdi:// 已注册")
 print("CFBundleDocumentTypes: md/txt 可被共享打开（文件复制进 Documents/Inbox）")
+print("UIFileSharingEnabled: Documents 在「文件」App 里可见")
 PY
 
 # 开屏：用仓库里 Web 入口页风格的 storyboard 覆盖 SDK 自带的
