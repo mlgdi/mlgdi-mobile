@@ -1,6 +1,6 @@
 import { log, logError } from './logger'
 import { recordExport } from './diag'
-import { documentsPath, ensureDir, fileSizeAt, nativeReady, writeText } from './native-fs'
+import { documentsPath, ensureDir, fileExists, fileSizeAt, nativeReady, writeText } from './native-fs'
 
 /**
  * 把正文导出成 `.md` 文件，存到用户自己能找到的地方（App 端是「文件」App）。
@@ -197,8 +197,9 @@ async function writeDocFile(name: string, text: string): Promise<{ abs: string; 
         lastError = new Error(`写入后文件为 ${size} 字节`)
         logError('md', lastError.message)
       } else {
+        // 把 exists 一起记下来：能分清是「写失败」还是「写成功了但查不到」
         lastError = new Error('原生写入失败')
-        logError('md', `${abs} 写入失败`)
+        logError('md', `${abs} 写入失败（exists=${fileExists(abs)}）`)
       }
     }
   } else {

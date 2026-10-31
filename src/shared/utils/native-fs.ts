@@ -1,25 +1,33 @@
 /**
- * 直接用 `plus.ios` 调 `NSFileManager` —— 绕开 plus.io 的路径问题。
+ * 直接用 `plus.ios` 调 `NSFileManager` / `NSData` —— 绕开 plus.io 的路径问题。
  *
  * ## 为什么放弃 `plus.io`
  *
- * 0.7.27 的实测结果：`plus.io` 能算出正确的 `<sandbox>/Documents` 绝对路径
- * （诊断页显示的 Inbox 路径是对的），但 **`resolveLocalFileSystemURL` 解不了
- * 这个绝对路径** —— 写入静默失败、退回 DCloud 的
- * `Library/Pandora/documents`，而 `contentsOfDirectoryAtPath` 那边也读不到。
+ * 0.7.27 实测：`plus.io` 能算出正确的 `<sandbox>/Documents` 绝对路径，但
+ * **`resolveLocalFileSystemURL` 解不了它** —— 写入静默失败、退回 DCloud 的
+ * `Library/Pandora/documents`。plus.io 只在自己注册过的文件系统常量里可信，
+ * 碰到系统的 `Documents` 就失灵。和最初 `uni.getFileSystemManager` 一样：
+ * 中间隔了一层不可控的封装。
  *
- * 换句话说：plus.io 只在自己的文件系统常量（`_doc` / `_documents`）里可信，
- * 一旦要碰系统的 `Documents`（那是它没注册过的「文件系统」），它的表现
- * 就变成「回调不回来 / 静默失败」—— 这和最初 `uni.getFileSystemManager`
- * 那条死路是同一类问题：**中间隔了一层不可控的封装**。
+ * ## 三条从 0.7.28 日志里学到的规则
  *
- * `plus.ios` 是直接调 Objective-C，没有中间层，也没有路径白名单。
- * 诊断页已经确认它在当前包上可用（「plus.ios 可用」）。
+ * 0.7.28 的日志写着 `.../Documents/Exports/xxx.md 写入失败`，而
+ * `documentsPath()` 同时是成功的。同一套 `invoke`，一个成一个败，差别在：
+ *
+ * 1. **类方法一律用 `i.invoke(Class, 'selector:', ...)`**，不要
+ *    `Class.method(...)`。`importClass` 返回的是动态包装，点出来只对
+ *    少数常用方法（如 `NSURL.fileURLWithPath`）有效，其余静默返回 undefined。
+ * 2. **能用不带 `NSError**` 的 API 就用不带的那版**：
+ *    写文件用 `NSData.writeToFile:atomically:`（两个参数），
+ *    建目录用 `createDirectoryAtPath:attributes:`，
+ *    列目录用 `enumeratorAtPath:` + `nextObject`。
+ *    二级指针参数（`NSError **`）在桥接层是最大的不确定来源。
+ * 3. **不信 BOOL 返回值，只信结果**。写完用 `fileExistsAtPath:` 查一遍，
+ *    建完目录查一遍 —— BOOL 在不同基座上可能是 `true` / `1` / 包装对象。
  *
  * ## 约定
  *
- * 这里所有函数**都不抛异常**：失败返回空串 / false / []。
- * 调用方负责决定要不要退回 plus.io。
+ * 这里所有函数**都不抛异常**：失败返回空串 / false / [] / -1。
  */
 
 function ios(): any {
@@ -33,7 +41,12 @@ export function nativeReady(): boolean {
 function fileManager(): any {
   const i = ios()
   const NSFileManager = i.importClass('NSFileManager')
-  return NSFileManager.defaultManager()
+  return i.invoke(NSFileManager, 'defaultManager')
+}
+
+/** BOOL 返回值在桥接层可能是 true / 1 / '1'，统一判一次 */
+function truthy(v: any): boolean {
+  return v === true || v === 1 || v === '1'
 }
 
 /** `NSDocumentDirectory` */
@@ -47,6 +60,8 @@ const NS_UTF8 = 4
  * 真正的 `<sandbox>/Documents`。
  *
  * 问系统要，而不是自己拼 —— 这是唯一不会有歧义的来源。
+ * 这一条在 0.7.27/0.7.28 都是成功的，说明 `NSError **` 传 null 对
+ * `URLForDirectory:` 没问题（但对 `writeToFile:...error:` 就有问题）。
  */
 export function documentsPath(): string {
   try {
@@ -74,25 +89,33 @@ export function fileExists(absPath: string): boolean {
   try {
     const i = ios()
     const fm = fileManager()
-    const ok = i.invoke(fm, 'fileExistsAtPath:', absPath)
-    return ok === true || ok === 1
+    return truthy(i.invoke(fm, 'fileExistsAtPath:', absPath))
   } catch {
     return false
   }
 }
 
-/** 列目录，返回文件名（不含路径）。目录不存在返回 []。 */
+/**
+ * 列目录，返回直接子项的名字。目录不存在返回 []。
+ *
+ * 用 `enumeratorAtPath:` 而不是 `contentsOfDirectoryAtPath:error:`：
+ * 前者不带 `NSError **`。代价是它会递归子目录，所以要把带 `/` 的相对路径滤掉。
+ */
 export function listDir(absPath: string): string[] {
   try {
+    if (!fileExists(absPath)) return []
     const i = ios()
     const fm = fileManager()
-    const arr = i.invoke(fm, 'contentsOfDirectoryAtPath:error:', absPath, null)
-    if (!arr) return []
-    const count = Number(i.invoke(arr, 'count')) || 0
+    const en = i.invoke(fm, 'enumeratorAtPath:', absPath)
+    if (!en) return []
     const out: string[] = []
-    for (let k = 0; k < count; k += 1) {
-      const item = i.invoke(arr, 'objectAtIndex:', k)
-      if (item) out.push(String(item))
+    // 上限只防桥接层返回异常值把循环卡死，正常目录远到不了
+    for (let n = 0; n < 500; n += 1) {
+      const item = i.invoke(en, 'nextObject')
+      if (!item) break
+      const name = String(item)
+      if (name.indexOf('/') >= 0) continue
+      out.push(name)
     }
     return out
   } catch {
@@ -100,40 +123,41 @@ export function listDir(absPath: string): string[] {
   }
 }
 
-/** 建目录（含中间层）。已存在也算成功。 */
+/**
+ * 建目录（只建一层）。
+ *
+ * 调用方要的都是 `Documents/Exports` 这种「父级已存在」的情况，
+ * 所以用不带 `NSError**` 的 `createDirectoryAtPath:attributes:` 就够了。
+ */
 export function ensureDir(absPath: string): boolean {
   try {
+    if (fileExists(absPath)) return true
     const i = ios()
     const fm = fileManager()
-    const ok = i.invoke(
-      fm,
-      'createDirectoryAtPath:withIntermediateDirectories:attributes:error:',
-      absPath,
-      true,
-      null,
-      null,
-    )
-    return ok === true || ok === 1 || fileExists(absPath)
+    i.invoke(fm, 'createDirectoryAtPath:attributes:', absPath, null)
+    return fileExists(absPath)
   } catch {
     return false
   }
 }
 
-/** 写 UTF-8 文本（原子写）。 */
+/**
+ * 写 UTF-8 文本。
+ *
+ * 链路：`NSString stringWithString:` → `dataUsingEncoding:` → `NSData writeToFile:atomically:`。
+ * 最后一步只有两个参数、没有 `NSError **`，是这条链上最稳的一环。
+ * 写完不看返回值，直接查文件是否存在。
+ */
 export function writeText(absPath: string, text: string): boolean {
   try {
     const i = ios()
     const NSString = i.importClass('NSString')
-    const str = NSString.stringWithString(text)
-    const ok = i.invoke(
-      str,
-      'writeToFile:atomically:encoding:error:',
-      absPath,
-      true,
-      NS_UTF8,
-      null,
-    )
-    return ok === true || ok === 1
+    const str = i.invoke(NSString, 'stringWithString:', text)
+    if (!str) return false
+    const data = i.invoke(str, 'dataUsingEncoding:', NS_UTF8)
+    if (!data) return false
+    i.invoke(data, 'writeToFile:atomically:', absPath, true)
+    return fileExists(absPath)
   } catch {
     return false
   }
@@ -143,8 +167,13 @@ export function writeText(absPath: string, text: string): boolean {
 export function readText(absPath: string): string {
   try {
     const i = ios()
+    const NSData = i.importClass('NSData')
     const NSString = i.importClass('NSString')
-    const str = i.invoke(NSString, 'stringWithContentsOfFile:encoding:error:', absPath, NS_UTF8, null)
+    const data = i.invoke(NSData, 'dataWithContentsOfFile:', absPath)
+    if (!data) return ''
+    // initWithData:encoding: 没有 NSError**，比 stringWithContentsOfFile:encoding:error: 稳
+    const obj = i.invoke(NSString, 'alloc')
+    const str = i.invoke(obj, 'initWithData:encoding:', data, NS_UTF8)
     return str ? String(str) : ''
   } catch {
     return ''
@@ -155,11 +184,10 @@ export function readText(absPath: string): string {
 export function fileSizeAt(absPath: string): number {
   try {
     const i = ios()
-    const fm = fileManager()
-    const attrs = i.invoke(fm, 'attributesOfItemAtPath:error:', absPath, null)
-    if (!attrs) return -1
-    const size = i.invoke(attrs, 'objectForKey:', 'NSFileSize')
-    const n = Number(size)
+    const NSData = i.importClass('NSData')
+    const data = i.invoke(NSData, 'dataWithContentsOfFile:', absPath)
+    if (!data) return -1
+    const n = Number(i.invoke(data, 'length'))
     return Number.isFinite(n) ? n : -1
   } catch {
     return -1
@@ -170,8 +198,8 @@ export function removeFileAt(absPath: string): boolean {
   try {
     const i = ios()
     const fm = fileManager()
-    const ok = i.invoke(fm, 'removeItemAtPath:error:', absPath, null)
-    return ok === true || ok === 1
+    i.invoke(fm, 'removeItemAtPath:error:', absPath, null)
+    return !fileExists(absPath)
   } catch {
     return false
   }
@@ -181,15 +209,15 @@ export function removeFileAt(absPath: string): boolean {
  * 拿 `rootViewController` 的类名。
  *
  * 「下载没反应」还有一种可能不是写入失败，而是系统面板 present 不出去：
- * `keyWindow` 在 iOS 13+ 多场景下可能为空，拿不到 root 就什么都弹不出来。
- * 把类名打出来，一眼能分清是「没写文件」还是「弹不出面板」。
+ * `keyWindow` 在 iOS 13+ 多场景下可能为空。把类名打出来，
+ * 一眼能分清是「没写文件」还是「弹不出面板」。
  */
 export function presenterClass(): string {
   try {
     const i = ios()
     if (!i?.importClass) return '(无 plus.ios)'
     const UIApplication = i.importClass('UIApplication')
-    const app = UIApplication.sharedApplication()
+    const app = i.invoke(UIApplication, 'sharedApplication')
     let win = i.invoke(app, 'keyWindow')
     if (!win) {
       const delegate = i.invoke(app, 'delegate')
@@ -219,9 +247,9 @@ export interface SelfTestRow {
 /**
  * 存储自检。
  *
- * 为什么需要它：这一路已经连续四轮「改完还是不行」，而每次能拿到的
- * 只有一句「没反应」。与其再猜第五次，不如让 App 自己把每条通道跑一遍、
- * 把结果打印出来 —— 哪条通、哪条断，一张截图就说完。
+ * 为什么需要它：这一路已经连续五轮「改完还是不行」，而每次能拿到的
+ * 只有一句「没反应」。与其再猜第六次，不如让 App 自己把每条通道跑一遍、
+ * 把结果打印出来 —— 哪条通、断在哪一步，一张截图就说完。
  */
 export function storageSelfTest(): SelfTestRow[] {
   const rows: SelfTestRow[] = []
@@ -242,21 +270,27 @@ export function storageSelfTest(): SelfTestRow[] {
   push('Documents 内容', true, items.length ? items.join(' / ') : '(空)')
 
   const inbox = `${docs}/Inbox`
-  push('Inbox 目录', fileExists(inbox), fileExists(inbox) ? '存在' : '不存在（系统还没复制过文件）')
-  if (fileExists(inbox)) {
+  const inboxExists = fileExists(inbox)
+  push('Inbox 目录', inboxExists, inboxExists ? '存在' : '不存在（系统还没复制过文件）')
+  if (inboxExists) {
     const inboxItems = listDir(inbox)
     push('Inbox 内容', true, inboxItems.length ? inboxItems.join(' / ') : '(空)')
   }
 
   const exportsDir = `${docs}/Exports`
-  push('建 Exports', ensureDir(exportsDir), exportsDir)
-  const probe = `${exportsDir}/__selftest.txt`
-  const wrote = writeText(probe, `selftest ${new Date().toISOString()}`)
-  push('写测试文件', wrote, probe)
-  const size = fileSizeAt(probe)
-  push('读回大小', size > 0, `${size} 字节`)
-  const back = readText(probe)
-  push('读回内容', back.startsWith('selftest'), back.slice(0, 40) || '(空)')
+  const dirOk = ensureDir(exportsDir)
+  push('建 Exports', dirOk, dirOk ? exportsDir : `${exportsDir}（建不成功）`)
+
+  if (dirOk) {
+    const probe = `${exportsDir}/__selftest.txt`
+    const wrote = writeText(probe, `selftest ${new Date().toISOString()} 中文`)
+    push('写测试文件', wrote, probe)
+    push('文件是否存在', fileExists(probe), probe)
+    const size = fileSizeAt(probe)
+    push('读回大小', size > 0, `${size} 字节`)
+    const back = readText(probe)
+    push('读回内容', back.startsWith('selftest'), back.slice(0, 30) || '(空)')
+  }
 
   // 弹面板用的 rootViewController —— 决定「下载」有没有反应
   const presenter = presenterClass()

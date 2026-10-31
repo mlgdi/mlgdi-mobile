@@ -160,7 +160,8 @@ export async function listInboxDocs(): Promise<InboxDoc[]> {
   const primary = base ? `${base}/Inbox` : ''
   if (primary) {
     const names = listDir(primary)
-    log('inbox', `[原生] 扫描 ${primary}：${names.length} 个条目`)
+    // exists 一定要打：0 个条目和「目录根本不存在」是两种完全不同的故障
+    log('inbox', `[原生] 扫描 ${primary}：${names.length} 个条目（exists=${fileExists(primary)}）`)
     for (const name of names) {
       if (!TEXT_EXT.test(name)) continue
       const abs = `${primary}/${name}`
