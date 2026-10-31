@@ -95,6 +95,14 @@
             </view>
             <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
           </view>
+          <view class="divider" />
+          <view class="cell" @click="toLogs">
+            <view class="cell-main">
+              <text class="cell-title">运行日志</text>
+              <text class="cell-sub muted">可整段复制，报问题时一起发过来</text>
+            </view>
+            <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
+          </view>
         </view>
       </view>
 
@@ -1438,6 +1446,10 @@ function toImportDoc(): void {
 
 function toDiag(): void {
   uni.navigateTo({ url: '/pages/diag/index' })
+}
+
+function toLogs(): void {
+  uni.navigateTo({ url: '/pages/logs/index' })
 }
 
 function toLogin(): void {

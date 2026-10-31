@@ -46,6 +46,13 @@
       }
     },
     {
+      "path": "pages/logs/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "运行日志"
+      }
+    },
+    {
       "path": "pages/inbox/index",
       "style": {
         "navigationStyle": "custom",

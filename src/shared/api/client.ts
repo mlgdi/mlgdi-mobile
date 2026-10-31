@@ -8,6 +8,7 @@
  * 3. `DEVICE_MISMATCH` 不做续期重试——那是凭证/设备被吊销，只能重新登录；
  *    `UNAUTHORIZED` 才尝试用 refresh_token 换一次。
  */
+import { logError } from '../utils/logger'
 import { getBaseUrl } from '../config/server'
 import { clearSession, readSession, writeSession } from '../auth/session'
 
@@ -156,7 +157,16 @@ function goLogin(reason: string): void {
 }
 
 export async function request<T>(opts: RequestOptions): Promise<T> {
-  let res = await send(opts)
+  const label = `${opts.method || 'GET'} ${opts.path}`
+
+  let res
+  try {
+    res = await send(opts)
+  } catch (e) {
+    // 网络层直接失败（断网、地址错、超时）：这条最容易「看起来没反应」
+    logError('api', `${label} 网络失败：${(e as Error)?.message || e}`)
+    throw e
+  }
 
   if (res.status === 401) {
     const err = toApiError(res.status, res.data)
@@ -176,5 +186,8 @@ export async function request<T>(opts: RequestOptions): Promise<T> {
   if (res.status >= 200 && res.status < 300) {
     return res.data as T
   }
-  throw toApiError(res.status, res.data)
+  const err = toApiError(res.status, res.data)
+  // 只记失败：成功的请求太吵，会把日志冲掉
+  logError('api', `${label} -> ${res.status} ${err.code}${err.reason ? ` · ${err.reason}` : ''}`)
+  throw err
 }

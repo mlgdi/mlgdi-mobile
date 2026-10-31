@@ -1,3 +1,5 @@
+import { log, logError } from './logger'
+
 /**
  * 把正文导出成 `.md` 文件，存到用户自己能找到的地方（App 端是「文件」App）。
  *
@@ -281,6 +283,7 @@ export async function saveMarkdownFile(
 
   // #ifdef APP-PLUS
   const plusAny = (globalThis as any).plus
+  log('md', `开始：${name} · ${text.length} 字`)
   /*
    * 判「是不是 iOS」不要看 plus.os.name。
    * 它的文档值是 "iOS"，但不同基座返回过不同大小写甚至别的串，
@@ -289,18 +292,28 @@ export async function saveMarkdownFile(
    */
   if (!plusAny?.ios?.importClass) {
     // Android 上要落到公共目录得写 MediaStore / SAF，另做
+    logError('md', `平台不支持：plus=${Boolean(plusAny)} ios=${Boolean(plusAny?.ios)}`)
     throw new Error('当前平台暂不支持保存文件')
   }
-  const abs = await writeDocFile(name, text)
+  let abs = ''
+  try {
+    abs = await writeDocFile(name, text)
+  } catch (e) {
+    logError('md', `写入失败：${(e as Error)?.message || e}`)
+    throw e
+  }
+  log('md', `写入成功：${abs}`)
   // 文件落地了：让调用方先收掉 loading，再弹系统选择器。
   // 系统选择器是 modal，loading 压在它下面会一直转，看起来像卡死。
   opts.onFileReady?.()
   await new Promise((resolve) => setTimeout(resolve, 60))
   try {
     presentFilePicker(abs)
-  } catch {
+    log('md', '已弹出「存储到文件」选择器')
+  } catch (e) {
     // 文件选择器在某些越狱 / 老系统上可能拿不到；
     // 退回分享面板，至少让文件能出去，而不是点了毫无反应
+    logError('md', `选择器失败，退回分享面板：${(e as Error)?.message || e}`)
     presentShareSheet(abs)
   }
   return 'picker'

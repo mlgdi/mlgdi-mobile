@@ -241,6 +241,7 @@ import { subLevels } from '../../shared/utils/scope'
 import { isPublicShare, shareUrlOf } from '../../shared/utils/share'
 import { saveMarkdownFile } from '../../shared/utils/share-file'
 import { recordError } from '../../shared/utils/diag'
+import { logError } from '../../shared/utils/logger'
 import { formatDate } from '../../shared/utils/date'
 import { getBaseUrl } from '../../shared/config/server'
 
@@ -525,6 +526,7 @@ async function saveMarkdown(): Promise<void> {
   } catch (e) {
     uni.hideLoading()
     recordError('save-md', (e as Error)?.message || String(e))
+    logError('share', `下载 md 失败：${(e as Error)?.message || e}`)
     uni.showToast({ title: (e as Error)?.message || '保存失败', icon: 'none' })
   }
 }

@@ -21,6 +21,8 @@
  * 也少一个「基座版本变了锚点对不上」的构建风险。
  */
 
+import { log, logError } from './logger'
+
 export interface InboxDoc {
   /** 原始文件名（含扩展名） */
   name: string
@@ -97,14 +99,21 @@ function readText(entry: any): Promise<string> {
 export async function listInboxDocs(): Promise<InboxDoc[]> {
   // #ifdef APP-PLUS
   const entries = await listEntries(INBOX_DIR)
+  log('inbox', `扫描 ${INBOX_DIR}：${entries.length} 个条目`)
   const docs: InboxDoc[] = []
 
   for (const entry of entries) {
     if (!entry?.isFile) continue
     const name = String(entry.name || '')
     if (!TEXT_EXT.test(name)) continue
-    const text = await readText(entry).catch(() => '')
-    if (!text.trim() || text.length > MAX_CHARS) continue
+    const text = await readText(entry).catch((e) => {
+      logError('inbox', `${name} 读取失败：${e?.message || e}`)
+      return ''
+    })
+    if (!text.trim() || text.length > MAX_CHARS) {
+      log('inbox', `${name} 跳过（${text ? '超过大小上限' : '内容为空'}）`)
+      continue
+    }
     docs.push({
       name,
       path: String(entry.fullPath || `${INBOX_DIR}${name}`),
@@ -113,6 +122,7 @@ export async function listInboxDocs(): Promise<InboxDoc[]> {
   }
 
   docs.sort((a, b) => a.name.localeCompare(b.name))
+  log('inbox', `可导入 ${docs.length} 个`)
   return docs
   // #endif
   return []
@@ -241,6 +251,7 @@ export function checkInboxImport(hasSession: boolean): void {
     // 冷启动时文件可能刚被系统拷进来，扫两轮：立刻一次、1.2s 后再一次
     for (let round = 0; round < 3; round += 1) {
       const docs = await listInboxDocs()
+      log('inbox', `第 ${round + 1} 轮：${docs.length} 个待导入`)
       if (docs.length) {
         uni.navigateTo({
           url: '/pages/import-doc/index',
