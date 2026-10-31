@@ -403,16 +403,9 @@ static UIViewController *MlgdiTopViewController(void)
     return root;
 }
 
-/// 选择器的 delegate：真的保存成功之后弹系统分享菜单（和分享图片同一套面板）
-@interface MlgdiPickerDelegate : NSObject <UIDocumentPickerDelegate>
-@end
-
-@implementation MlgdiPickerDelegate
-
-- (void)documentPicker:(UIDocumentPickerViewController *)controller
-    didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
+/// 弹系统分享面板（和分享图片同一套）
+static void MlgdiPresentShare(NSString *path)
 {
-    NSString *path = gMlgdiExportPath;
     if (path.length == 0) return;
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
@@ -433,6 +426,44 @@ static UIViewController *MlgdiTopViewController(void)
             [top presentViewController:vc animated:YES completion:nil];
         } @catch (NSException *e) {
             NSLog(@"[export] share sheet failed: %@", e);
+        }
+    });
+}
+
+/// 选择器的 delegate：保存成功后给一个轻提示，想分享再手动点。
+///
+/// 不直接弹分享面板 —— 多数时候用户只是想把文件存下来，每次保存都被推一个
+/// 分享面板是干扰。提示里带「分享」按钮，想发出去的人一步到位。
+@interface MlgdiPickerDelegate : NSObject <UIDocumentPickerDelegate>
+@end
+
+@implementation MlgdiPickerDelegate
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller
+    didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
+{
+    NSString *path = gMlgdiExportPath;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            UIViewController *top = MlgdiTopViewController();
+            if (!top) return;
+            UIAlertController *alert = [UIAlertController
+                alertControllerWithTitle:@"已保存"
+                                 message:@"文件已存到你选择的位置"
+                          preferredStyle:UIAlertControllerStyleAlert];
+            if (path.length > 0) {
+                [alert addAction:[UIAlertAction actionWithTitle:@"分享"
+                                                          style:UIAlertActionStyleDefault
+                                                        handler:^(UIAlertAction *action) {
+                    MlgdiPresentShare(path);
+                }]];
+            }
+            [alert addAction:[UIAlertAction actionWithTitle:@"完成"
+                                                      style:UIAlertActionStyleCancel
+                                                    handler:nil]];
+            [top presentViewController:alert animated:YES completion:nil];
+        } @catch (NSException *e) {
+            NSLog(@"[export] result alert failed: %@", e);
         }
     });
 }

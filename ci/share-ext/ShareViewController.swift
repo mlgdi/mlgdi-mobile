@@ -127,11 +127,16 @@ public final class ShareViewController: UIViewController {
             let handedOff = savePayload(text: text, link: link, name: name)
             delivered = true
             // handedOff == false 说明只剩剪贴板通道：内容已经在剪贴板里，
-            // 但用户必须自己切回 App 才会被问到，所以文案要写清楚这一步
+            // 但用户必须自己切回 App 才会被问到。
+            //
+            // 停留 2.5 秒（原 1.5）：这句话是整条链路上唯一的指引，
+            // 「切回 App」这四个字一闪而过，用户就不知道下一步该干嘛了。
             show(
                 title: "已送到渡己",
-                detail: handedOff ? "切回 App 即可投递" : "内容已放进剪贴板，切回 App 会自动询问是否投递",
-                then: 1.5
+                detail: handedOff
+                    ? "请切回「渡己」App，会问你要投递到哪"
+                    : "内容已放进剪贴板，切回「渡己」App 会自动询问",
+                then: 2.5
             )
         } else {
             show(
