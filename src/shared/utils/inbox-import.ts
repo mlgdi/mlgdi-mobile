@@ -24,7 +24,7 @@
 import { log, logError } from './logger'
 import { sandboxInbox } from './paths'
 import {
-  documentsPath,
+  documentsDir,
   fileExists,
   listDir,
   nativeReady,
@@ -156,7 +156,7 @@ export async function listInboxDocs(): Promise<InboxDoc[]> {
 
   // ---- 主通道：原生读真 `<sandbox>/Documents/Inbox` ----
   // plus.io 解不了这个绝对路径（0.7.27 实测），只能走 plus.ios
-  const base = documentsPath()
+  const base = await documentsDir()
   const primary = base ? `${base}/Inbox` : ''
   if (primary) {
     const names = listDir(primary)
@@ -290,7 +290,7 @@ export async function inboxDiagnostics(): Promise<InboxDiagnostics> {
   const others: InboxDirStat[] = []
 
   // 主通道：原生列真 `<sandbox>/Documents/Inbox`
-  const base = documentsPath()
+  const base = await documentsDir()
   const primary = base ? `${base}/Inbox` : ''
   if (primary) {
     const files = listDir(primary).filter((n) => fileExists(`${primary}/${n}`))

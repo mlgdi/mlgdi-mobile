@@ -29,6 +29,7 @@
  *
  * 这里所有函数**都不抛异常**：失败返回空串 / false / [] / -1。
  */
+import { sandboxDocuments } from './paths'
 
 function ios(): any {
   return (globalThis as any).plus?.ios
@@ -38,10 +39,32 @@ export function nativeReady(): boolean {
   return Boolean(ios()?.importClass)
 }
 
+/**
+ * 拿 NSFileManager 单例。
+ *
+ * **两种调用方式都要试，不能只认一种。** 这是踩出来的：
+ * - 0.7.28 用 `NSFileManager.defaultManager()`（点语法）→ 拿到对象，目录建成了；
+ * - 0.7.29 换成 `i.invoke(NSFileManager, 'defaultManager')` → null，
+ *   `NSDocumentDirectory` 直接变成「取不到」，整条链路全灭。
+ *
+ * 和 `NSString.stringWithString` 的教训合起来只能得出一个结论：
+ * **桥接层对「哪些方法点语法有效」没有稳定规律，逐个试才是唯一靠谱的做法。**
+ */
 function fileManager(): any {
   const i = ios()
+  if (!i?.importClass) return null
   const NSFileManager = i.importClass('NSFileManager')
-  return i.invoke(NSFileManager, 'defaultManager')
+  try {
+    const viaDot = NSFileManager?.defaultManager?.()
+    if (viaDot) return viaDot
+  } catch {
+    /* 试下一种 */
+  }
+  try {
+    return i.invoke(NSFileManager, 'defaultManager')
+  } catch {
+    return null
+  }
 }
 
 /** BOOL 返回值在桥接层可能是 true / 1 / '1'，统一判一次 */
@@ -68,6 +91,7 @@ export function documentsPath(): string {
     const i = ios()
     if (!i?.importClass) return ''
     const fm = fileManager()
+    if (!fm) return ''
     const url = i.invoke(
       fm,
       'URLForDirectory:inDomain:appropriateForURL:create:error:',
@@ -89,10 +113,40 @@ export function fileExists(absPath: string): boolean {
   try {
     const i = ios()
     const fm = fileManager()
+    if (!fm) return false
     return truthy(i.invoke(fm, 'fileExistsAtPath:', absPath))
   } catch {
     return false
   }
+}
+
+let cachedDocs: string | null = null
+
+/**
+ * 真正的 `<sandbox>/Documents`，**两条来源**：
+ *
+ * 1. 问系统：`NSFileManager URLForDirectory:inDomain:...`（最权威）；
+ * 2. `plus.io` 推导：`_doc` 绝对路径切掉 `/Library/` 再接 `/Documents`。
+ *
+ * 第二条不是备胎心理安慰 —— 0.7.27 / 0.7.28 的诊断页显示的正是它算出来的
+ * 绝对路径（`.../Application/<UUID>/Documents/Inbox`），说明它一直是对的。
+ * 而第一条在 0.7.29 因为 `defaultManager` 换了调用方式直接失败。
+ *
+ * 两条都拿不到才返回空串。只缓存成功结果。
+ */
+export async function documentsDir(): Promise<string> {
+  if (cachedDocs) return cachedDocs
+  const viaNative = documentsPath()
+  if (viaNative) {
+    cachedDocs = viaNative
+    return cachedDocs
+  }
+  const viaIO = await sandboxDocuments()
+  if (viaIO) {
+    cachedDocs = viaIO
+    return cachedDocs
+  }
+  return ''
 }
 
 /**
@@ -106,6 +160,7 @@ export function listDir(absPath: string): string[] {
     if (!fileExists(absPath)) return []
     const i = ios()
     const fm = fileManager()
+    if (!fm) return []
     const en = i.invoke(fm, 'enumeratorAtPath:', absPath)
     if (!en) return []
     const out: string[] = []
@@ -134,6 +189,7 @@ export function ensureDir(absPath: string): boolean {
     if (fileExists(absPath)) return true
     const i = ios()
     const fm = fileManager()
+    if (!fm) return false
     i.invoke(fm, 'createDirectoryAtPath:attributes:', absPath, null)
     return fileExists(absPath)
   } catch {
@@ -198,6 +254,7 @@ export function removeFileAt(absPath: string): boolean {
   try {
     const i = ios()
     const fm = fileManager()
+    if (!fm) return false
     i.invoke(fm, 'removeItemAtPath:error:', absPath, null)
     return !fileExists(absPath)
   } catch {
@@ -251,7 +308,7 @@ export interface SelfTestRow {
  * 只有一句「没反应」。与其再猜第六次，不如让 App 自己把每条通道跑一遍、
  * 把结果打印出来 —— 哪条通、断在哪一步，一张截图就说完。
  */
-export function storageSelfTest(): SelfTestRow[] {
+export async function storageSelfTest(): Promise<SelfTestRow[]> {
   const rows: SelfTestRow[] = []
   const push = (step: string, ok: boolean, detail: string): void => {
     rows.push({ step, ok, detail })
@@ -260,9 +317,17 @@ export function storageSelfTest(): SelfTestRow[] {
   push('plus.ios', nativeReady(), nativeReady() ? '可用' : '不可用')
   if (!nativeReady()) return rows
 
-  const docs = documentsPath()
-  push('NSDocumentDirectory', Boolean(docs), docs || '(取不到)')
-  if (!docs) return rows
+  // 两条来源分开报：0.7.28 是 URLForDirectory 能通、0.7.29 换了调用方式就不通，
+  // 混在一起看根本分不出是哪一条断的
+  const viaNative = documentsPath()
+  push('URLForDirectory', Boolean(viaNative), viaNative || '(取不到)')
+
+  const docs = await documentsDir()
+  push('Documents（最终）', Boolean(docs), docs || '(两条来源都失败)')
+  if (!docs) {
+    push('请检查', false, '拿不到 Documents 路径，读写都无从谈起')
+    return rows
+  }
 
   push('Documents 目录', fileExists(docs), fileExists(docs) ? '存在' : '不存在')
 

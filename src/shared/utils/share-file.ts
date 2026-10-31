@@ -1,6 +1,6 @@
 import { log, logError } from './logger'
 import { recordExport } from './diag'
-import { documentsPath, ensureDir, fileExists, fileSizeAt, nativeReady, writeText } from './native-fs'
+import { documentsDir, ensureDir, fileExists, fileSizeAt, nativeReady, writeText } from './native-fs'
 
 /**
  * 把正文导出成 `.md` 文件，存到用户自己能找到的地方（App 端是「文件」App）。
@@ -183,7 +183,7 @@ async function writeDocFile(name: string, text: string): Promise<{ abs: string; 
 
   // ① 原生 NSFileManager 写 <sandbox>/Documents/Exports
   //    这是「文件」App 里唯一看得见的位置，也是 plus.io 够不着的位置
-  const docs = documentsPath()
+  const docs = await documentsDir()
   if (docs) {
     const dir = `${docs}/Exports`
     if (!ensureDir(dir)) {

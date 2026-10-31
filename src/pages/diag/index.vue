@@ -35,10 +35,10 @@ const busy = ref(false)
 const testRows = ref<SelfTestRow[]>([])
 const testing = ref(false)
 
-function runSelfTest(): void {
+async function runSelfTest(): Promise<void> {
   testing.value = true
   try {
-    testRows.value = storageSelfTest()
+    testRows.value = await storageSelfTest()
   } finally {
     testing.value = false
   }
