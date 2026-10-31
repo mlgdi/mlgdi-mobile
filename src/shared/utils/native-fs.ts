@@ -371,6 +371,50 @@ export interface SelfTestRow {
  * 只有一句「没反应」。与其再猜第六次，不如让 App 自己把每条通道跑一遍、
  * 把结果打印出来 —— 哪条通、断在哪一步，一张截图就说完。
  */
+/** plus.io 往 `_doc` 写一个文件，返回绝对路径。失败返回空串。 */
+function writeStaging(name: string, text: string): Promise<string> {
+  return new Promise((resolve) => {
+    const io = (globalThis as any).plus?.io
+    if (!io?.requestFileSystem || io.PRIVATE_DOC === undefined) {
+      resolve('')
+      return
+    }
+    let done = false
+    const finish = (v: string): void => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      resolve(v)
+    }
+    const timer = setTimeout(() => finish(''), 5000)
+    try {
+      io.requestFileSystem(
+        io.PRIVATE_DOC,
+        (fs: any) => {
+          fs.root.getFile(
+            name,
+            { create: true },
+            (entry: any) => {
+              entry.createWriter(
+                (w: any) => {
+                  w.onwrite = () => finish(String(entry.fullPath || ''))
+                  w.onerror = () => finish('')
+                  w.write(text)
+                },
+                () => finish(''),
+              )
+            },
+            () => finish(''),
+          )
+        },
+        () => finish(''),
+      )
+    } catch {
+      finish('')
+    }
+  })
+}
+
 export async function storageSelfTest(): Promise<SelfTestRow[]> {
   const rows: SelfTestRow[] = []
   const push = (step: string, ok: boolean, detail: string): void => {
@@ -411,8 +455,17 @@ export async function storageSelfTest(): Promise<SelfTestRow[]> {
 
   if (dirOk) {
     const probe = `${exportsDir}/__selftest.txt`
-    const wrote = writeText(probe, `selftest ${new Date().toISOString()} 中文`)
-    push('写测试文件', wrote, probe)
+    const payload = `selftest ${new Date().toISOString()} 中文`
+
+    // 用和「下载」完全相同的两段式：plus.io 写暂存 → copy 进 Exports。
+    // 之前这里测的是 NSData writeToFile，那条路已证明写不进去，
+    // 继续测它只会天天显示「失败」，把真正的结论盖住。
+    const staging = await writeStaging('__selftest.txt', payload)
+    push('写暂存(_doc)', Boolean(staging), staging || '(失败)')
+    if (staging) {
+      const copied = copyFile(staging, probe)
+      push('复制到 Exports', copied, copied ? probe : '(失败)')
+    }
     push('文件是否存在', fileExists(probe), probe)
     const size = fileSizeAt(probe)
     push('读回大小', size > 0, `${size} 字节`)
