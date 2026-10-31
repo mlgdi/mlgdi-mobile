@@ -89,9 +89,6 @@ function back(): void {
 
       <view v-if="!logs.length" class="hint">
         <text class="muted">还没有日志</text>
-        <text class="hint-h">
-          去用一下出问题的功能（比如分享 → 下载 Markdown），再回来看这里
-        </text>
       </view>
 
       <view v-else-if="!shown.length" class="hint">

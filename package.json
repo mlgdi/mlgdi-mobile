@@ -1,6 +1,6 @@
 {
   "name": "mlgdi-mobile",
-  "version": "0.7.36",
+  "version": "0.7.37",
   "private": true,
   "description": "渡己 · 移动端（uni-app Vue3，iOS 首发）",
   "scripts": {

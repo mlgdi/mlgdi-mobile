@@ -2,8 +2,8 @@
     "name": "渡己",
     "appid": "__UNI__1877F1B",
     "description": "自托管个人知识中枢 · 移动端",
-    "versionName": "0.7.36",
-    "versionCode": "549",
+    "versionName": "0.7.37",
+    "versionCode": "550",
     "transformPx": false,
     "uniStatistics": {
         "enable": false

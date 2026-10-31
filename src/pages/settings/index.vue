@@ -76,30 +76,11 @@
         </view>
       </view>
 
-      <!-- 手动入口：自动跳转依赖「系统把文件拷进 Inbox」，
-           万一某台机器上没触发，这里至少能自己进导入页看看到底有没有文件 -->
       <view v-if="auth.logged" class="section">
         <view class="card">
-          <view class="cell" @click="toImportDoc">
-            <view class="cell-main">
-              <text class="cell-title">导入 Markdown</text>
-              <text class="cell-sub muted">处理从「文件」App 分享进来的 .md</text>
-            </view>
-            <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
-          </view>
-          <view class="divider" />
-          <view class="cell" @click="toDiag">
-            <view class="cell-main">
-              <text class="cell-title">诊断</text>
-              <text class="cell-sub muted">分享与导入不工作时先看这里</text>
-            </view>
-            <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
-          </view>
-          <view class="divider" />
           <view class="cell" @click="toLogs">
             <view class="cell-main">
               <text class="cell-title">运行日志</text>
-              <text class="cell-sub muted">可整段复制，报问题时一起发过来</text>
             </view>
             <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
           </view>
@@ -1427,14 +1408,6 @@ function logout(): void {
     auth.logout()
     uni.reLaunch({ url: '/pages/login/index' })
   })
-}
-
-function toImportDoc(): void {
-  uni.navigateTo({ url: '/pages/import-doc/index' })
-}
-
-function toDiag(): void {
-  uni.navigateTo({ url: '/pages/diag/index' })
 }
 
 function toLogs(): void {
