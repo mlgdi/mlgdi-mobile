@@ -1,6 +1,6 @@
 import { log, logError } from './logger'
 import { recordExport } from './diag'
-import { sandboxRoot } from './paths'
+import { documentsPath, ensureDir, fileSizeAt, nativeReady, writeText } from './native-fs'
 
 /**
  * 把正文导出成 `.md` 文件，存到用户自己能找到的地方（App 端是「文件」App）。
@@ -127,45 +127,6 @@ function writeIntoDir(
   })
 }
 
-/**
- * 往 `<sandbox>/Documents/Exports/` 写 —— 这才是「文件」App 里看得见的那个 Documents。
- *
- * 只能从沙盒根一层层 `getDirectory(..., {create:true})` 走进去：
- * `plus.io.requestFileSystem` 只认文件系统常量，不认任意绝对路径，
- * 而 `PUBLIC_DOCUMENTS` 在 iOS 上给的是 `Library/Pandora/documents`（错的）。
- * `resolveLocalFileSystemURL` 接受绝对路径，从根开始建目录最稳。
- */
-function writeUnderSandbox(
-  root: string,
-  name: string,
-  text: string,
-): Promise<{ abs: string; size: number }> {
-  return new Promise((resolve, reject) => {
-    const io = plusIO()
-    io.resolveLocalFileSystemURL(
-      root,
-      (rootEntry: any) => {
-        rootEntry.getDirectory(
-          'Documents',
-          { create: true },
-          (docs: any) => {
-            docs.getDirectory(
-              'Exports',
-              { create: true },
-              (dir: any) => {
-                writeIntoDir(dir, name, text).then(resolve, reject)
-              },
-              () => reject(new Error('无法创建 Exports 目录')),
-            )
-          },
-          () => reject(new Error('无法创建 Documents 目录')),
-        )
-      },
-      () => reject(new Error('无法访问沙盒目录')),
-    )
-  })
-}
-
 /** 往某个文件系统常量下写，`dirName` 为空表示直接写在根下。兜底用。 */
 function writeOne(
   fsConst: number,
@@ -216,25 +177,37 @@ function plusIO(): any {
  */
 async function writeDocFile(name: string, text: string): Promise<{ abs: string; size: number }> {
   const io = plusIO()
-  if (!io) throw new Error('当前环境不支持写入文件')
+  if (!io && !nativeReady()) throw new Error('当前环境不支持写入文件')
 
   let lastError: Error | null = null
 
-  // ① 真 Documents/Exports —— 唯一在「文件」App 里可见的位置
-  const root = await sandboxRoot()
-  if (root) {
-    try {
-      return await withTimeout(writeUnderSandbox(root, name, text), 8000, '写入文件超时，请重试')
-    } catch (e) {
-      lastError = e as Error
-      logError('md', `写入 Documents/Exports 失败：${lastError.message}`)
+  // ① 原生 NSFileManager 写 <sandbox>/Documents/Exports
+  //    这是「文件」App 里唯一看得见的位置，也是 plus.io 够不着的位置
+  const docs = documentsPath()
+  if (docs) {
+    const dir = `${docs}/Exports`
+    if (!ensureDir(dir)) {
+      lastError = new Error('无法创建 Exports 目录')
+      logError('md', `创建 ${dir} 失败`)
+    } else {
+      const abs = `${dir}/${name}`
+      if (writeText(abs, text)) {
+        const size = fileSizeAt(abs)
+        if (size > 0 || text.length === 0) return { abs, size }
+        lastError = new Error(`写入后文件为 ${size} 字节`)
+        logError('md', lastError.message)
+      } else {
+        lastError = new Error('原生写入失败')
+        logError('md', `${abs} 写入失败`)
+      }
     }
   } else {
-    logError('md', '拿不到沙盒根目录，退回 DCloud 目录')
+    logError('md', '拿不到 Documents 路径，退回 plus.io')
   }
 
-  // ② DCloud 的 PUBLIC_DOCUMENTS（Library/Pandora/documents/Exports）
-  // ③ DCloud 的 PRIVATE_DOC
+  if (!io) throw lastError || new Error('写入文件失败')
+
+  // ② 退回 plus.io（DCloud 自己的目录，用户看不见，但至少能交给选择器）
   const targets: { fsConst: number; dir: string }[] = []
   if (io.PUBLIC_DOCUMENTS !== undefined) {
     targets.push({ fsConst: io.PUBLIC_DOCUMENTS, dir: 'Exports' })
@@ -315,11 +288,12 @@ function rootViewController(ios: any): any {
 }
 
 /**
- * 弹出「存储到文件」——就是系统文件 App 的保存位置选择器。
+ * 弹出「存储到文件」——系统文件 App 的保存位置选择器。
  *
- * 为什么不用分享面板：用户要的是「下载」，也就是把文件放到自己能看到的地方，
- * 再由他自己决定怎么处理（发微信、丢网盘、留着）。分享面板是「立刻发出去」的
- * 语义，而且微信收不收 .md 由它的分享扩展决定，那个面板里可能根本没有微信。
+ * ⚠️ 当前**没有接入**（见 `saveMarkdownFile` 里的 `openPicker` 说明）：
+ * 在这个侧载包上 present 之后没有任何可见反应，不抛异常、回调也不来，
+ * 调用方拿不到任何信号。保留实现是因为它本身没有问题 —— 等确认了
+ * rootViewController 的表现随时可以切回来。
  *
  * `initForExportingURLs:asCopy:` 是 iOS 14+ 的构造器；老系统退回
  * `initWithURL:inMode:`（UIDocumentPickerModeExportToService = 1）。
@@ -350,6 +324,8 @@ function presentFilePicker(absPath: string): void {
   try {
     const NSArray = ios.importClass('NSArray')
     urls = NSArray.arrayWithObject(url)
+    // 光非空不够：拿到一个 count 为 0 的数组同样会让面板空白
+    if (urls && Number(ios.invoke(urls, 'count')) !== 1) urls = null
   } catch {
     urls = null
   }
@@ -386,7 +362,7 @@ function downloadBlob(name: string, text: string): void {
 export async function saveMarkdownFile(
   title: string,
   body: string,
-  opts: { onFileReady?: () => void } = {},
+  opts: { onFileReady?: () => void; openPicker?: boolean } = {},
 ): Promise<'picker' | 'downloaded'> {
   const name = markdownFileName(title)
   const text = markdownText(body)
@@ -425,15 +401,27 @@ export async function saveMarkdownFile(
   // 文件落地了：让调用方先收掉 loading，再弹系统选择器。
   // 系统选择器是 modal，loading 压在它下面会一直转，看起来像卡死。
   opts.onFileReady?.()
-  await new Promise((resolve) => setTimeout(resolve, 60))
-  try {
-    presentFilePicker(abs)
-    log('md', '已弹出「存储到文件」选择器')
-  } catch (e) {
-    // 文件选择器在某些越狱 / 老系统上可能拿不到；
-    // 退回分享面板，至少让文件能出去，而不是点了毫无反应
-    logError('md', `选择器失败，退回分享面板：${(e as Error)?.message || e}`)
-    presentShareSheet(abs)
+
+  /*
+   * `openPicker` 默认 false —— 不再自动弹「存储到文件」。
+   *
+   * 理由（0.7.27 实测）：`UIDocumentPickerViewController` 在这个侧载包上
+   * present 之后没有任何可见反应，而它失败时不抛异常、回调也不会来，
+   * 调用方拿不到任何信号。结果就是用户点了「下载」看到的是「什么都没发生」。
+   * 文件其实已经写进 `<sandbox>/Documents/Exports`（「文件」App 里可见），
+   * 所以正确的反馈是把位置说清楚，而不是再弹一个大概率不出现的面板。
+   *
+   * 需要「另存到 iCloud / 发出去」时，可以显式传 openPicker: true
+   * ——分享面板（UIActivityViewController）这条路是验证过能弹的。
+   */
+  if (opts.openPicker) {
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    try {
+      presentShareSheet(abs)
+      log('md', '已弹出系统面板')
+    } catch (e) {
+      logError('md', `分享面板失败：${(e as Error)?.message || e}`)
+    }
   }
   return 'picker'
   // #endif

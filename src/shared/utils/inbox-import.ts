@@ -23,6 +23,14 @@
 
 import { log, logError } from './logger'
 import { sandboxInbox } from './paths'
+import {
+  documentsPath,
+  fileExists,
+  listDir,
+  nativeReady,
+  readText,
+  removeFileAt,
+} from './native-fs'
 
 export interface InboxDoc {
   /** 原始文件名（含扩展名） */
@@ -114,7 +122,7 @@ function listEntries(dirPath: string): Promise<any[]> {
   })
 }
 
-function readText(entry: any): Promise<string> {
+function readTextViaIO(entry: any): Promise<string> {
   return new Promise((resolve, reject) => {
     const io = plusIO()
     entry.file(
@@ -133,33 +141,50 @@ function readText(entry: any): Promise<string> {
 /** 扫 Inbox，返回可以导入的文本文件（按名字排序，顺序稳定便于「跳过」） */
 export async function listInboxDocs(): Promise<InboxDoc[]> {
   // #ifdef APP-PLUS
-  const dirs = await inboxDirs()
   const docs: InboxDoc[] = []
   const seen = new Set<string>()
 
-  for (const dir of dirs) {
+  const take = (name: string, absPath: string, text: string): void => {
+    if (seen.has(name)) return
+    if (!text.trim() || text.length > MAX_CHARS) {
+      log('inbox', `${name} 跳过（${text ? '超过大小上限' : '内容为空'}）`)
+      return
+    }
+    seen.add(name)
+    docs.push({ name, path: absPath, text })
+  }
+
+  // ---- 主通道：原生读真 `<sandbox>/Documents/Inbox` ----
+  // plus.io 解不了这个绝对路径（0.7.27 实测），只能走 plus.ios
+  const base = documentsPath()
+  const primary = base ? `${base}/Inbox` : ''
+  if (primary) {
+    const names = listDir(primary)
+    log('inbox', `[原生] 扫描 ${primary}：${names.length} 个条目`)
+    for (const name of names) {
+      if (!TEXT_EXT.test(name)) continue
+      const abs = `${primary}/${name}`
+      // 目录也会被列出来，按文件是否存在过滤
+      if (!fileExists(abs)) continue
+      take(name, abs, readText(abs))
+    }
+  } else {
+    log('inbox', '[原生] 拿不到 Documents 路径')
+  }
+
+  // ---- 兜底：plus.io 的旧目录（历史残留，或 native 不可用时） ----
+  for (const dir of await inboxDirs()) {
     const entries = await listEntries(dir)
     log('inbox', `扫描 ${dir}：${entries.length} 个条目`)
     for (const entry of entries) {
       if (!entry?.isFile) continue
       const name = String(entry.name || '')
-      if (!TEXT_EXT.test(name)) continue
-      // 两个目录都可能是真的，同名只认先扫到的那个（Documents 优先）
-      if (seen.has(name)) continue
-      seen.add(name)
-      const text = await readText(entry).catch((e) => {
+      if (!TEXT_EXT.test(name) || seen.has(name)) continue
+      const text = await readTextViaIO(entry).catch((e) => {
         logError('inbox', `${name} 读取失败：${e?.message || e}`)
         return ''
       })
-      if (!text.trim() || text.length > MAX_CHARS) {
-        log('inbox', `${name} 跳过（${text ? '超过大小上限' : '内容为空'}）`)
-        continue
-      }
-      docs.push({
-        name,
-        path: String(entry.fullPath || `${dir}${name}`),
-        text,
-      })
+      take(name, String(entry.fullPath || `${dir}${name}`), text)
     }
   }
 
@@ -172,6 +197,11 @@ export async function listInboxDocs(): Promise<InboxDoc[]> {
 
 /** 删掉已导入（或已跳过）的文件，避免下次回前台又弹一遍 */
 export function removeInboxDoc(path: string): Promise<void> {
+  // 原生路径（`/var/...` 开头）优先：plus.io 解不了它
+  if (path.startsWith('/') && nativeReady()) {
+    removeFileAt(path)
+    return Promise.resolve()
+  }
   return new Promise((resolve) => {
     const io = plusIO()
     if (!io || !path) {
@@ -255,25 +285,28 @@ export interface InboxDiagnostics {
 export async function inboxDiagnostics(): Promise<InboxDiagnostics> {
   // #ifdef APP-PLUS
   await whenPlusReady()
-  const dirs = await inboxDirs()
   const names: string[] = []
   const others: InboxDirStat[] = []
 
-  for (let i = 0; i < dirs.length; i += 1) {
-    const entries = await listEntries(dirs[i])
-    const files = entries.filter((e) => e?.isFile).map((e) => String(e.name || ''))
-    if (i === 0) {
-      names.push(...files)
-    } else {
-      others.push({ dir: dirs[i], total: files.length })
-      for (const n of files) if (!names.includes(n)) names.push(n)
-    }
+  // 主通道：原生列真 `<sandbox>/Documents/Inbox`
+  const base = documentsPath()
+  const primary = base ? `${base}/Inbox` : ''
+  if (primary) {
+    const files = listDir(primary).filter((n) => fileExists(`${primary}/${n}`))
+    names.push(...files)
   }
 
-  const main = dirs[0] || DOCS_INBOX_LABEL
+  // 兜底目录：plus.io 能读的几个历史位置，顺便把「文件到底进了哪」暴露出来
+  for (const dir of await inboxDirs()) {
+    const entries = await listEntries(dir)
+    const files = entries.filter((e) => e?.isFile).map((e) => String(e.name || ''))
+    others.push({ dir, total: files.length })
+    for (const n of files) if (!names.includes(n)) names.push(n)
+  }
+
   return {
-    dir: main,
-    absDir: main.startsWith('/') ? main : '',
+    dir: primary || DOCS_INBOX_LABEL,
+    absDir: primary,
     total: names.length,
     usable: names.filter((n) => TEXT_EXT.test(n)).length,
     names,

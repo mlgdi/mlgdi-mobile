@@ -14,6 +14,7 @@ import { capture } from '../api/inbox'
 import { hasSession } from '../auth/session'
 import { readClipboard } from './file'
 import { requireLogin } from './guard'
+import { recordClip } from './diag'
 import { confirmDialog, toast } from '../ui/feedback'
 
 /** 上一次问过的内容：同一段内容只在切换回来时问一次，不反复弹 */
@@ -103,18 +104,32 @@ export async function askClipboardIntake(): Promise<void> {
   if (!hasSession() || !clipAskEnabled()) return
   try {
     const text = (await readClipboard()).trim()
-    if (!text || text === lastClip) return
+    const head = preview(text).slice(0, 40)
+    if (!text) {
+      recordClip({ len: 0, head: '', verdict: '剪贴板是空的' })
+      return
+    }
+    // 同一段内容只在切回来时问一次，不反复弹
+    if (text === lastClip) {
+      recordClip({ len: text.length, head, verdict: '和上次相同，不再询问' })
+      return
+    }
     // 分享进来的文档优先：文案与长度判定都走分享那套
     if (parseSharedFile(text)) {
       lastClip = text
+      recordClip({ len: text.length, head, verdict: '识别为分享文件' })
       askCapture(text, 'share')
       return
     }
-    if (!looksUseful(text)) return
+    if (!looksUseful(text)) {
+      recordClip({ len: text.length, head, verdict: '忽略（不像可用内容）' })
+      return
+    }
     lastClip = text
+    recordClip({ len: text.length, head, verdict: '可用' })
     askCapture(text, 'clip')
-  } catch {
-    /* 读不到就算了，别为这个打扰用户 */
+  } catch (err: any) {
+    recordClip({ len: 0, head: '', verdict: `读取失败：${err?.message || err}` })
   }
   // #endif
 }

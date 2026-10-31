@@ -525,6 +525,7 @@ async function saveMarkdown(): Promise<void> {
     })
     endLoading()
     if (how === 'downloaded') toast('已下载 .md 文件')
+    else toast('已存到「文件」App › 渡己 › Exports')
   } catch (e) {
     endLoading()
     recordError('save-md', (e as Error)?.message || String(e))

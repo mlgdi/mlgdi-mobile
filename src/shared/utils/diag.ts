@@ -29,6 +29,23 @@ export interface DiagExport {
   expect: number
 }
 
+/**
+ * 最近一次剪贴板检测的结果。
+ *
+ * 别的 App 分享过来、切回本 App 却「没反应」时，问题是两选一：
+ * 剪贴板里根本没有内容（扩展没写成），还是有内容但被判成「不值得问」。
+ * 这两件事只看界面分不出来。
+ */
+export interface DiagClip {
+  at: string
+  /** 读到的字符数 */
+  len: number
+  /** 前 40 字，用来认是不是那个文件 */
+  head: string
+  /** 判定结论：分享文件 / 可用 / 忽略 / 空 */
+  verdict: string
+}
+
 export interface DiagEnv {
   osName: string
   osVersion: string
@@ -41,10 +58,12 @@ export interface DiagEnv {
   hasFsm: boolean
   inbox: InboxDiagnostics
   lastExport: DiagExport | null
+  lastClip: DiagClip | null
 }
 
 const ERROR_KEY = 'garden.diag.errors'
 const EXPORT_KEY = 'garden.diag.export'
+const CLIP_KEY = 'garden.diag.clip'
 const MAX_ERRORS = 8
 
 export function recordError(scope: string, message: string): void {
@@ -103,6 +122,23 @@ export function readExport(): DiagExport | null {
   }
 }
 
+export function recordClip(info: Omit<DiagClip, 'at'>): void {
+  try {
+    uni.setStorageSync(CLIP_KEY, { at: new Date().toLocaleTimeString(), ...info })
+  } catch {
+    /* 诊断本身不能成为新的故障点 */
+  }
+}
+
+export function readClip(): DiagClip | null {
+  try {
+    const raw = uni.getStorageSync(CLIP_KEY)
+    return raw && typeof raw === 'object' ? (raw as DiagClip) : null
+  } catch {
+    return null
+  }
+}
+
 export async function collectEnv(): Promise<DiagEnv> {
   const plusAny = (globalThis as any).plus
   const inbox = await inboxDiagnostics().catch(() => ({
@@ -122,5 +158,6 @@ export async function collectEnv(): Promise<DiagEnv> {
     hasFsm: Boolean((uni as any).getFileSystemManager),
     inbox,
     lastExport: readExport(),
+    lastClip: readClip(),
   }
 }

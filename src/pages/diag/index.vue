@@ -19,10 +19,30 @@ import {
   type DiagEnv,
   type DiagError,
 } from '../../shared/utils/diag'
+import { storageSelfTest, type SelfTestRow } from '../../shared/utils/native-fs'
 
 const env = ref<DiagEnv | null>(null)
 const errors = ref<DiagError[]>([])
 const busy = ref(false)
+
+/**
+ * 存储自检结果。
+ *
+ * 「共享收不到 / 下载没反应」这两条已经连续四轮没解决，靠现象描述无法定位：
+ * 到底是路径推错了、原生桥接调不通、还是系统压根没把文件交过来？
+ * 这个按钮把每条通道挨个跑一遍，一张截图就能说清楚。
+ */
+const testRows = ref<SelfTestRow[]>([])
+const testing = ref(false)
+
+function runSelfTest(): void {
+  testing.value = true
+  try {
+    testRows.value = storageSelfTest()
+  } finally {
+    testing.value = false
+  }
+}
 
 onShow(() => {
   void refresh()
@@ -137,6 +157,44 @@ function back(): void {
             {{ env.lastExport.at }} · 正文 {{ env.lastExport.expect }} 字
           </text>
         </template>
+      </view>
+
+      <text class="section-label muted">最近剪贴板</text>
+      <view class="card">
+        <view v-if="!env?.lastClip" class="row">
+          <text class="v muted">还没有检测过</text>
+        </view>
+        <template v-else>
+          <view class="row">
+            <text class="k">判定</text>
+            <text class="v">{{ env.lastClip.verdict }}</text>
+          </view>
+          <view class="row">
+            <text class="k">长度</text>
+            <text class="v mono">{{ env.lastClip.len }} 字</text>
+          </view>
+          <view v-if="env.lastClip.head" class="abs">
+            <text class="abs-t mono">{{ env.lastClip.head }}</text>
+          </view>
+          <text class="hint-line">{{ env.lastClip.at }} · 切回前台时读取</text>
+        </template>
+      </view>
+
+      <view class="section-head">
+        <text class="section-label muted">存储自检</text>
+        <text class="clear" @click="runSelfTest">{{ testing ? '检测中…' : '运行' }}</text>
+      </view>
+      <view class="card">
+        <view v-if="!testRows.length" class="row">
+          <text class="v muted">点「运行」，逐项检查每一条读写通道</text>
+        </view>
+        <view v-for="r in testRows" :key="r.step" class="test-row">
+          <view class="test-top">
+            <text class="k">{{ r.step }}</text>
+            <text :class="['badge', r.ok ? 'ok' : 'bad']">{{ r.ok ? '通过' : '失败' }}</text>
+          </view>
+          <text class="test-detail mono">{{ r.detail }}</text>
+        </view>
       </view>
 
       <view class="section-head">
@@ -287,6 +345,39 @@ function back(): void {
 .err {
   padding: 20rpx 0;
   border-bottom: 1px solid var(--line);
+}
+
+.test-row {
+  padding: 18rpx 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.test-row:last-child {
+  border-bottom: none;
+}
+
+.test-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.badge {
+  flex: 0 0 auto;
+  padding: 2rpx 12rpx;
+  border-radius: var(--r-full);
+  font-size: var(--fs-2xs);
+  background-color: var(--surface-2);
+}
+
+.test-detail {
+  display: block;
+  margin-top: 6rpx;
+  font-size: var(--fs-2xs);
+  line-height: 1.6;
+  color: var(--faint);
+  word-break: break-all;
 }
 
 .err:last-child {
