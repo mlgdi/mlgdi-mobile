@@ -364,22 +364,101 @@ def main() -> int:
         adm = adm[:b] + method + "\n" + adm[b:]
         appdelegate.write_text(adm, encoding="utf-8")
 
-    # ---- AppDelegate.m: export picker --------------------------------------
+    # ---- AppDelegate.m: export picker + 保存后分享 ------------------------
     #
     # 为什么这个必须放原生：JS 侧用 plus.ios.invoke 调 presentViewController，
     # 有两件事说不准 —— 回调是不是在主线程、rootViewController 是不是当前
     # 活跃窗口。0.7.28 到 0.7.33 连续几版「点了没反应」都栽在这两点上：
-    # present 被系统静默拒绝，既不抛异常、回调也不来，JS 拿不到任何信号，
-    # 于是既没法报错也没法重试。
+    # present 被系统静默拒绝，既不抛异常、回调也不来，JS 拿不到任何信号。
     #
-    # 原生侧一次把三件事做对：主线程 dispatch、扫 connectedScenes 找 keyWindow、
-    # 顺着 presentedViewController 找到真正能 present 的那一层。
-    if "mlgdiPresentExportPicker" not in adm:
+    # 「保存成功后再弹分享菜单」同样只能在这里做：只有 UIDocumentPickerDelegate
+    # 的 didPickDocumentsAtURLs 能区分「保存」和「取消」，在 JS 里延后猜
+    # 会在用户取消时弹出一个莫名其妙的菜单。
+    if "MlgdiPickerDelegate" not in adm:
+        preamble = """
+#pragma mark - Export picker support (injected)
+
+/// 最近一次导出的绝对路径（分享菜单要用）
+static NSString *gMlgdiExportPath = nil;
+
+/// 当前活跃窗口里最上层的 view controller。
+/// 只取 rootViewController 不够：它可能正在 present 别的东西，
+/// 也可能不是 keyWindow 里那个 —— 这两点正是之前 present 静默失败的根因。
+static UIViewController *MlgdiTopViewController(void)
+{
+    UIWindow *win = nil;
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (scene.activationState != UISceneActivationStateForegroundActive) continue;
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+                if (w.isKeyWindow) { win = w; break; }
+            }
+            if (win) break;
+        }
+    }
+    if (!win) win = UIApplication.sharedApplication.keyWindow;
+    UIViewController *root = win.rootViewController;
+    while (root.presentedViewController) root = root.presentedViewController;
+    return root;
+}
+
+/// 选择器的 delegate：真的保存成功之后弹系统分享菜单（和分享图片同一套面板）
+@interface MlgdiPickerDelegate : NSObject <UIDocumentPickerDelegate>
+@end
+
+@implementation MlgdiPickerDelegate
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller
+    didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
+{
+    NSString *path = gMlgdiExportPath;
+    if (path.length == 0) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            UIViewController *top = MlgdiTopViewController();
+            if (!top) return;
+            NSURL *url = [NSURL fileURLWithPath:path];
+            UIActivityViewController *vc =
+                [[UIActivityViewController alloc] initWithActivityItems:@[url]
+                                                 applicationActivities:nil];
+            if (!vc) return;
+            // iPad 上 popover 必须有锚点，否则 present 会直接崩
+            if (vc.popoverPresentationController) {
+                vc.popoverPresentationController.sourceView = top.view;
+                vc.popoverPresentationController.sourceRect =
+                    CGRectMake(CGRectGetMidX(top.view.bounds),
+                               CGRectGetMidY(top.view.bounds), 1, 1);
+            }
+            [top presentViewController:vc animated:YES completion:nil];
+        } @catch (NSException *e) {
+            NSLog(@"[export] share sheet failed: %@", e);
+        }
+    });
+}
+
+- (void)documentPickerWasCancelled:(UIDocumentPickerViewController *)controller
+{
+    // 用户取消：什么都不做
+}
+
+@end
+
+static MlgdiPickerDelegate *gMlgdiPickerDelegate = nil;
+
+"""
+        impl_anchor = "@implementation AppDelegate"
+        if impl_anchor not in adm:
+            return fail("@implementation AppDelegate not found (export picker)")
+        ipos = adm.index(impl_anchor)
+        adm = adm[:ipos] + preamble + adm[ipos:]
+
         picker_method = """
 #pragma mark - Export picker (injected)
 - (void)mlgdiPresentExportPicker:(NSString *)path
 {
     if (path.length == 0) return;
+    gMlgdiExportPath = [path copy];
     dispatch_async(dispatch_get_main_queue(), ^{
         @try {
             NSURL *url = [NSURL fileURLWithPath:path];
@@ -392,24 +471,13 @@ def main() -> int:
             }
             if (!picker) return;
 
-            UIWindow *win = nil;
-            if (@available(iOS 13.0, *)) {
-                for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-                    if (scene.activationState != UISceneActivationStateForegroundActive) continue;
-                    if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-                    for (UIWindow *w in ((UIWindowScene *)scene).windows) {
-                        if (w.isKeyWindow) { win = w; break; }
-                    }
-                    if (win) break;
-                }
-            }
-            if (!win) win = UIApplication.sharedApplication.keyWindow;
-            if (!win) return;
+            // delegate 是 weak，必须由 static 变量强引用住，否则回调会丢
+            if (!gMlgdiPickerDelegate) gMlgdiPickerDelegate = [MlgdiPickerDelegate new];
+            picker.delegate = gMlgdiPickerDelegate;
 
-            UIViewController *root = win.rootViewController;
-            while (root.presentedViewController) root = root.presentedViewController;
-            if (!root) return;
-            [root presentViewController:picker animated:YES completion:nil];
+            UIViewController *top = MlgdiTopViewController();
+            if (!top) return;
+            [top presentViewController:picker animated:YES completion:nil];
         } @catch (NSException *e) {
             NSLog(@"[export] picker failed: %@", e);
         }
