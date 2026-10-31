@@ -87,6 +87,14 @@
             </view>
             <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
           </view>
+          <view class="divider" />
+          <view class="cell" @click="toDiag">
+            <view class="cell-main">
+              <text class="cell-title">诊断</text>
+              <text class="cell-sub muted">分享与导入不工作时先看这里</text>
+            </view>
+            <view class="chev"><GIcon name="chevron-right" :size="30" /></view>
+          </view>
         </view>
       </view>
 
@@ -1426,6 +1434,10 @@ function logout(): void {
 
 function toImportDoc(): void {
   uni.navigateTo({ url: '/pages/import-doc/index' })
+}
+
+function toDiag(): void {
+  uni.navigateTo({ url: '/pages/diag/index' })
 }
 
 function toLogin(): void {

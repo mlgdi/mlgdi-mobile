@@ -240,6 +240,7 @@ import { useSiteStore } from '../../shared/store/site'
 import { subLevels } from '../../shared/utils/scope'
 import { isPublicShare, shareUrlOf } from '../../shared/utils/share'
 import { saveMarkdownFile } from '../../shared/utils/share-file'
+import { recordError } from '../../shared/utils/diag'
 import { formatDate } from '../../shared/utils/date'
 import { getBaseUrl } from '../../shared/config/server'
 
@@ -523,6 +524,7 @@ async function saveMarkdown(): Promise<void> {
     if (how === 'downloaded') uni.showToast({ title: '已下载 .md 文件', icon: 'none' })
   } catch (e) {
     uni.hideLoading()
+    recordError('save-md', (e as Error)?.message || String(e))
     uni.showToast({ title: (e as Error)?.message || '保存失败', icon: 'none' })
   }
 }

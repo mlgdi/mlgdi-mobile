@@ -281,9 +281,13 @@ export async function saveMarkdownFile(
 
   // #ifdef APP-PLUS
   const plusAny = (globalThis as any).plus
-  // plus.os.name 返回的是 'iOS'（首字母大写），直接跟 'ios' 比较会永远不等 ——
-  // 表现就是 iOS 上点下载弹「当前平台暂不支持保存文件」。统一转小写再比。
-  if (!plusAny || String(plusAny.os?.name || '').toLowerCase() !== 'ios') {
+  /*
+   * 判「是不是 iOS」不要看 plus.os.name。
+   * 它的文档值是 "iOS"，但不同基座返回过不同大小写甚至别的串，
+   * 一旦比较失败就会误报「当前平台暂不支持保存文件」——这个坑已经踩过一次。
+   * plus.ios 是 iOS 平台独有的桥接对象，它的存在性比字符串可靠。
+   */
+  if (!plusAny?.ios?.importClass) {
     // Android 上要落到公共目录得写 MediaStore / SAF，另做
     throw new Error('当前平台暂不支持保存文件')
   }

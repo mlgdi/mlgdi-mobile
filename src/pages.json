@@ -39,6 +39,13 @@
       }
     },
     {
+      "path": "pages/diag/index",
+      "style": {
+        "navigationStyle": "custom",
+        "navigationBarTitleText": "诊断"
+      }
+    },
+    {
       "path": "pages/inbox/index",
       "style": {
         "navigationStyle": "custom",
