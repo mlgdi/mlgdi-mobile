@@ -257,6 +257,11 @@ async function writeDocFile(name: string, text: string): Promise<{ abs: string; 
 /**
  * 弹出系统分享面板（iOS）。
  *
+ * ⚠️ 当前**未接入**。0.7.33 试过用它做「下载完成 → 打开」，用户反馈点了
+ * 没有任何反应 —— 和 UIDocumentPicker 一样，JS 侧 present 在这台机器上
+ * 不稳定。现在统一走 AppDelegate 注入的 `mlgdiPresentExportPicker:`。
+ * 保留实现是因为它本身没问题，只是调用位置不对（应该是原生）。
+ *
  * `plus.ios.invoke` 的第三个参数是 Obj-C 选择器原文，方法名必须与
  * `initWithActivityItems:applicationActivities:` 这种写法完全一致 —— 写成
  * 驼峰拼接（`initWithActivityItemsApplicationActivities`）在部分基座上不生效，
@@ -367,6 +372,41 @@ function presentFilePicker(absPath: string): void {
   ios.invoke(root, 'presentViewController:animated:completion:', picker, true, null)
 }
 
+/**
+ * 弹出「存储到文件」——**走 AppDelegate 注入的原生方法**。
+ *
+ * 为什么绕到原生：JS 侧 `plus.ios.invoke` 调 `presentViewController`，
+ * 有两件事说不准 —— 是不是主线程、拿到的 rootViewController 是不是当前
+ * 活跃窗口。0.7.28 到 0.7.33 连续几版「点了没反应」都栽在这两点上：
+ * present 被系统静默拒绝，不抛异常、回调也不来，JS 拿不到任何信号。
+ *
+ * `mlgdiPresentExportPicker:` 由 `ci/add_share_extension.py` 注入到
+ * AppDelegate.m，内部做三件事：主线程 dispatch、扫 connectedScenes 找
+ * keyWindow、顺着 presentedViewController 找到真正能 present 的那层。
+ */
+function presentExportPickerNative(absPath: string): void {
+  const plusAny = (globalThis as any).plus
+  const ios = plusAny?.ios
+  if (!ios?.importClass) throw new Error('当前环境不支持存储文件')
+
+  const UIApplication = ios.importClass('UIApplication')
+  let app: any = null
+  try {
+    // sharedApplication 与 defaultManager 同样：点语法有效、invoke 常返回 null
+    app = UIApplication?.sharedApplication?.()
+  } catch {
+    app = null
+  }
+  if (!app) app = ios.invoke(UIApplication, 'sharedApplication')
+  if (!app) throw new Error('拿不到 UIApplication')
+
+  const delegate = ios.invoke(app, 'delegate')
+  if (!delegate) throw new Error('拿不到 AppDelegate')
+
+  // 方法不存在时 plus.ios 会抛 unrecognized selector，交给调用方兜底
+  ios.invoke(delegate, 'mlgdiPresentExportPicker:', absPath)
+}
+
 /** H5：直接下载一个 .md 文件 */
 function downloadBlob(name: string, text: string): void {
   const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' })
@@ -377,23 +417,6 @@ function downloadBlob(name: string, text: string): void {
   a.click()
   // 立刻 revoke 会让部分浏览器来不及取数据，等一帧再释放
   setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
-/** 最近一次成功导出的绝对路径。给「下载完成 → 打开」用。 */
-let lastSavedPath = ''
-
-/**
- * 打开最近一次导出的文件。
- *
- * 用系统分享面板（`UIActivityViewController`）而不是「存储到文件」
- * （`UIDocumentPickerViewController`）：前者验证过能弹，后者在 0.7.28 上
- * present 之后没有任何反应。分享面板里同样有「存储到文件」，能选目录、
- * 也能直接发出去或用别的 App 打开 —— 一个面板覆盖「另存到指定目录」和
- * 「打开看看」两件事。
- */
-export async function openLastSaved(): Promise<void> {
-  if (!lastSavedPath) throw new Error('还没有导出过文件')
-  presentShareSheet(lastSavedPath)
 }
 
 /**
@@ -440,7 +463,6 @@ export async function saveMarkdownFile(
     throw new Error('文件写入为空，请重试')
   }
   const abs = written.abs
-  lastSavedPath = abs
   // 文件落地了：让调用方先收掉 loading，再弹系统选择器。
   // 系统选择器是 modal，loading 压在它下面会一直转，看起来像卡死。
   opts.onFileReady?.()
@@ -457,13 +479,21 @@ export async function saveMarkdownFile(
    * 需要「另存到 iCloud / 发出去」时，可以显式传 openPicker: true
    * ——分享面板（UIActivityViewController）这条路是验证过能弹的。
    */
-  if (opts.openPicker) {
-    await new Promise((resolve) => setTimeout(resolve, 60))
+  /*
+   * 默认弹「存储到文件」——用户要的就是「选一个目录，确认，就存在那儿」。
+   *
+   * 不再先弹一个「下载完成」的确认框：那次点击本来就是冲着保存去的，
+   * 再让他点一次「好的」是多余的一步。
+   */
+  if (opts.openPicker !== false) {
+    await new Promise((resolve) => setTimeout(resolve, 80))
     try {
-      presentShareSheet(abs)
-      log('md', '已弹出系统面板')
+      presentExportPickerNative(abs)
+      log('md', '已请求弹出「存储到文件」')
     } catch (e) {
-      logError('md', `分享面板失败：${(e as Error)?.message || e}`)
+      logError('md', `选择器失败：${(e as Error)?.message || e}`)
+      // 文件确实已经写好了，把位置说出来 —— 别让「面板没弹」变成「以为没存」
+      throw new Error('打不开保存位置选择器。文件已存到「文件」App › 渡己 › Exports')
     }
   }
   return 'picker'

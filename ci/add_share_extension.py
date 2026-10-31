@@ -364,6 +364,65 @@ def main() -> int:
         adm = adm[:b] + method + "\n" + adm[b:]
         appdelegate.write_text(adm, encoding="utf-8")
 
+    # ---- AppDelegate.m: export picker --------------------------------------
+    #
+    # 为什么这个必须放原生：JS 侧用 plus.ios.invoke 调 presentViewController，
+    # 有两件事说不准 —— 回调是不是在主线程、rootViewController 是不是当前
+    # 活跃窗口。0.7.28 到 0.7.33 连续几版「点了没反应」都栽在这两点上：
+    # present 被系统静默拒绝，既不抛异常、回调也不来，JS 拿不到任何信号，
+    # 于是既没法报错也没法重试。
+    #
+    # 原生侧一次把三件事做对：主线程 dispatch、扫 connectedScenes 找 keyWindow、
+    # 顺着 presentedViewController 找到真正能 present 的那一层。
+    if "mlgdiPresentExportPicker" not in adm:
+        picker_method = """
+#pragma mark - Export picker (injected)
+- (void)mlgdiPresentExportPicker:(NSString *)path
+{
+    if (path.length == 0) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @try {
+            NSURL *url = [NSURL fileURLWithPath:path];
+            UIDocumentPickerViewController *picker = nil;
+            if (@available(iOS 14.0, *)) {
+                picker = [[UIDocumentPickerViewController alloc] initForExportingURLs:@[url] asCopy:YES];
+            } else {
+                picker = [[UIDocumentPickerViewController alloc] initWithURL:url
+                                                                      inMode:UIDocumentPickerModeExportToService];
+            }
+            if (!picker) return;
+
+            UIWindow *win = nil;
+            if (@available(iOS 13.0, *)) {
+                for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+                    if (scene.activationState != UISceneActivationStateForegroundActive) continue;
+                    if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+                    for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+                        if (w.isKeyWindow) { win = w; break; }
+                    }
+                    if (win) break;
+                }
+            }
+            if (!win) win = UIApplication.sharedApplication.keyWindow;
+            if (!win) return;
+
+            UIViewController *root = win.rootViewController;
+            while (root.presentedViewController) root = root.presentedViewController;
+            if (!root) return;
+            [root presentViewController:picker animated:YES completion:nil];
+        } @catch (NSException *e) {
+            NSLog(@"[export] picker failed: %@", e);
+        }
+    });
+}
+"""
+        boundary2 = "- (void)applicationWillResignActive:"
+        if boundary2 not in adm:
+            return fail("applicationWillResignActive anchor not found (picker)")
+        b2 = adm.index(boundary2)
+        adm = adm[:b2] + picker_method + "\n" + adm[b2:]
+        appdelegate.write_text(adm, encoding="utf-8")
+
     print("SHARE-EXT: injected (target ShareNav, embeds PlugIns/ShareNav.appex)")
     return 0
 

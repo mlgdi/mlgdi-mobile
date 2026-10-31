@@ -239,12 +239,12 @@ import { useAuthStore } from '../../shared/store/auth'
 import { useSiteStore } from '../../shared/store/site'
 import { subLevels } from '../../shared/utils/scope'
 import { isPublicShare, shareUrlOf } from '../../shared/utils/share'
-import { openLastSaved, saveMarkdownFile } from '../../shared/utils/share-file'
+import { saveMarkdownFile } from '../../shared/utils/share-file'
 import { recordError } from '../../shared/utils/diag'
 import { logError } from '../../shared/utils/logger'
 import { formatDate } from '../../shared/utils/date'
 import { getBaseUrl } from '../../shared/config/server'
-import { confirmDialog, toast, beginLoading, endLoading } from '../../shared/ui/feedback'
+import { alertDialog, confirmDialog, toast, beginLoading, endLoading } from '../../shared/ui/feedback'
 
 /** 编辑/删除/归档：既要有平台能力，也要真的登录了（游客能读不能写） */
 const canEdit = computed(() => capabilities.canEdit && auth.logged)
@@ -524,29 +524,18 @@ async function saveMarkdown(): Promise<void> {
       onFileReady: () => endLoading(),
     })
     endLoading()
-    if (how === 'downloaded') {
-      toast('已下载 .md 文件')
-    } else {
-      /*
-       * 用模态而不是 toast：「文件存到哪」是用户下一步必须知道的信息。
-       * 第二个按钮是「打开」——走系统分享面板，里面既能「存储到文件」
-       * 选任意目录，也能直接发给别的 App。
-       */
-      void confirmDialog({
-        title: '下载完成',
-        content: '文件已存到「文件」App → 我的 iPhone → 渡己 → Exports。',
-        confirmText: '打开',
-        cancelText: '知道了',
-      }).then((open) => {
-        if (!open) return
-        void openLastSaved().catch((err: any) => toast(err?.message || '打开失败'))
-      })
-    }
+    // App 端：saveMarkdownFile 内部已经弹出「存储到文件」，用户选目录保存即可
+    if (how === 'downloaded') toast('已下载 .md 文件')
   } catch (e) {
     endLoading()
     recordError('save-md', (e as Error)?.message || String(e))
     logError('share', `下载 md 失败：${(e as Error)?.message || e}`)
-    toast((e as Error)?.message || '保存失败')
+    // 弹模态而不是 toast：这条消息里可能带着「文件到底存到哪」，
+    // 一闪而过等于没提示
+    void alertDialog((e as Error)?.message || '保存失败', {
+      title: '下载',
+      confirmText: '知道了',
+    })
   }
 }
 
