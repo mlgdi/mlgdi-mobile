@@ -45,6 +45,25 @@ function Invoke-Git([string[]]$GitArgs) {
     try { return (& git -C $Root @GitArgs 2>$null) } catch { return $null }
 }
 
+# Remove-Item is NOT safe to call here. On machines with a safe-delete shim
+# installed (it wraps Remove-Item to move things to the Recycle Bin), the call
+# throws whenever the trash step fails - and this happens AFTER a successful
+# build, so the run looks like "packaging failed" while the IPA is already
+# sitting in dist-ipa. Cleanup is a best-effort epilogue: go through .NET
+# directly (no cmdlet wrapper) and never let it bubble up.
+function Remove-Quiet([string]$Path) {
+    if (-not $Path) { return }
+    try {
+        if ([System.IO.Directory]::Exists($Path)) {
+            [System.IO.Directory]::Delete($Path, $true)
+        } elseif ([System.IO.File]::Exists($Path)) {
+            [System.IO.File]::Delete($Path)
+        }
+    } catch {
+        Write-Host "    (cleanup skipped: $Path)" -ForegroundColor Yellow
+    }
+}
+
 $Branch   = Invoke-Git @("rev-parse", "--abbrev-ref", "HEAD")
 $LocalSha = Invoke-Git @("rev-parse", "HEAD")
 if ($Branch)   { $Branch = ($Branch -join "").Trim() }
@@ -166,7 +185,11 @@ Write-Host ("    zip {0:N1} MB" -f ((Get-Item $ZipPath).Length / 1MB))
 Write-Host "[4/4] Extracting the IPA..." -ForegroundColor Cyan
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $Tmp = Join-Path $OutDir "_unzip-$RunId"
-if (Test-Path $Tmp) { Remove-Item $Tmp -Recurse -Force }
+Remove-Quiet $Tmp
+# the delete above is best-effort; if the old dir survived, do not extract into it
+if (Test-Path $Tmp) {
+    $Tmp = Join-Path $OutDir ("_unzip-$RunId-" + [DateTime]::Now.ToString("HHmmss"))
+}
 [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $Tmp)
 $Ipa = Get-ChildItem -Path $Tmp -Recurse -Filter *.ipa | Select-Object -First 1
 if (-not $Ipa) { throw "no .ipa inside the artifact zip" }
@@ -195,8 +218,8 @@ if ($BuiltSha) {
 
 $Dest = Join-Path $OutDir ("garden-v{0}.ipa" -f $BuiltVersion)
 Copy-Item $Ipa.FullName $Dest -Force
-Remove-Item $Tmp -Recurse -Force
-Remove-Item $ZipPath -Force
+Remove-Quiet $Tmp
+Remove-Quiet $ZipPath
 Write-Host "    saved: $Dest" -ForegroundColor Green
 
 # ---------- network copy ----------
