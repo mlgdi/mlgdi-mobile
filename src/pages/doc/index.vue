@@ -239,12 +239,12 @@ import { useAuthStore } from '../../shared/store/auth'
 import { useSiteStore } from '../../shared/store/site'
 import { subLevels } from '../../shared/utils/scope'
 import { isPublicShare, shareUrlOf } from '../../shared/utils/share'
-import { saveMarkdownFile } from '../../shared/utils/share-file'
+import { openLastSaved, saveMarkdownFile } from '../../shared/utils/share-file'
 import { recordError } from '../../shared/utils/diag'
 import { logError } from '../../shared/utils/logger'
 import { formatDate } from '../../shared/utils/date'
 import { getBaseUrl } from '../../shared/config/server'
-import { alertDialog, confirmDialog, toast, beginLoading, endLoading } from '../../shared/ui/feedback'
+import { confirmDialog, toast, beginLoading, endLoading } from '../../shared/ui/feedback'
 
 /** 编辑/删除/归档：既要有平台能力，也要真的登录了（游客能读不能写） */
 const canEdit = computed(() => capabilities.canEdit && auth.logged)
@@ -528,16 +528,18 @@ async function saveMarkdown(): Promise<void> {
       toast('已下载 .md 文件')
     } else {
       /*
-       * 用模态而不是 toast。
-       *
-       * 0.7.31 用户反馈「文件确实出现在目录里，但点击下载依然没有任何提示」——
-       * 底部 toast 在这个页面不够显眼（分享抽屉刚收起、视线还在菜单区），
-       * 而「文件存到哪」恰恰是用户下一步必须知道的信息。
-       * 下载是低频操作，弹一次不算打扰。
+       * 用模态而不是 toast：「文件存到哪」是用户下一步必须知道的信息。
+       * 第二个按钮是「打开」——走系统分享面板，里面既能「存储到文件」
+       * 选任意目录，也能直接发给别的 App。
        */
-      void alertDialog('文件已存到「文件」App → 我的 iPhone → 渡己 → Exports。', {
+      void confirmDialog({
         title: '下载完成',
-        confirmText: '知道了',
+        content: '文件已存到「文件」App → 我的 iPhone → 渡己 → Exports。',
+        confirmText: '打开',
+        cancelText: '知道了',
+      }).then((open) => {
+        if (!open) return
+        void openLastSaved().catch((err: any) => toast(err?.message || '打开失败'))
       })
     }
   } catch (e) {

@@ -31,15 +31,21 @@
 			<key>NSExtensionActivationRule</key>
 			<dict>
 				<!--
-				  这里**故意不声明** NSExtensionActivationSupportsFileWithMaxCount。
-				  扩展是独立进程：App Group 要 entitlement（侧载包没有）、
-				  写共享文件会被沙箱拒、iOS 又禁止扩展 openURL —— 收到文件也只能
-				  写剪贴板。一旦它在分享面板里接住文件，主 App 就不会被拉起，
-				  用户看到的是「共享了但没反应，切回来才弹收进碎片箱」。
-				  文件改由主 App 的 CFBundleDocumentTypes 接收：系统把文件复制进
-				  Documents/Inbox 并直接启动主 App（见 ci/assemble-ios.sh）。
-				  文本与网页链接仍走扩展 —— 这两类没有文档打开通道。
+				  文件支持在 0.7.22 到 0.7.32 之间被摘掉，理由是「让 document
+				  interaction 接管，系统会把文件复制进 Documents/Inbox 并直接拉起主 App」。
+				  0.7.30 的自检证明这条根本不成立：Inbox 目录压根不存在，
+				  系统从未复制过任何文件（侧载包上 document interaction 没生效）。
+				  摘掉的代价是「分享 md 时渡己不出现在面板里」，等于把唯一能用的
+				  通道也关了。
+
+				  现在加回来。扩展的 Swift 代码本来就实现了 file-url 分支：
+				  读成文本 → 写共享 payload（App Group 或 /var/mobile/Library）→
+				  主 App 回前台由 AppDelegate 的 checkSharedSharePayload 取走，
+				  弹「收下这条分享？」。这条链路 0.7.21 验证过可用。
+				  代价是分享完要手动切回 App —— iOS 禁止扩展 openURL，这是系统限制。
 				-->
+				<key>NSExtensionActivationSupportsFileWithMaxCount</key>
+				<integer>5</integer>
 				<key>NSExtensionActivationSupportsText</key>
 				<true/>
 				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>

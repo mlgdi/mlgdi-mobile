@@ -379,6 +379,23 @@ function downloadBlob(name: string, text: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+/** 最近一次成功导出的绝对路径。给「下载完成 → 打开」用。 */
+let lastSavedPath = ''
+
+/**
+ * 打开最近一次导出的文件。
+ *
+ * 用系统分享面板（`UIActivityViewController`）而不是「存储到文件」
+ * （`UIDocumentPickerViewController`）：前者验证过能弹，后者在 0.7.28 上
+ * present 之后没有任何反应。分享面板里同样有「存储到文件」，能选目录、
+ * 也能直接发出去或用别的 App 打开 —— 一个面板覆盖「另存到指定目录」和
+ * 「打开看看」两件事。
+ */
+export async function openLastSaved(): Promise<void> {
+  if (!lastSavedPath) throw new Error('还没有导出过文件')
+  presentShareSheet(lastSavedPath)
+}
+
 /**
  * 下载 Markdown 文件（App 端存储到「文件」App，H5 端直接下载）。
  *
@@ -423,6 +440,7 @@ export async function saveMarkdownFile(
     throw new Error('文件写入为空，请重试')
   }
   const abs = written.abs
+  lastSavedPath = abs
   // 文件落地了：让调用方先收掉 loading，再弹系统选择器。
   // 系统选择器是 modal，loading 压在它下面会一直转，看起来像卡死。
   opts.onFileReady?.()
