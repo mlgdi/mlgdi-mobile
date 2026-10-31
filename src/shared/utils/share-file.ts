@@ -1,6 +1,6 @@
 import { log, logError } from './logger'
 import { recordExport } from './diag'
-import { documentsDir, ensureDir, fileExists, fileSizeAt, nativeReady, writeText } from './native-fs'
+import { documentsDir, copyFile, ensureDir, fileSizeAt, nativeReady } from './native-fs'
 
 /**
  * 把正文导出成 `.md` 文件，存到用户自己能找到的地方（App 端是「文件」App）。
@@ -180,51 +180,75 @@ async function writeDocFile(name: string, text: string): Promise<{ abs: string; 
   if (!io && !nativeReady()) throw new Error('当前环境不支持写入文件')
 
   let lastError: Error | null = null
+  let staging: { abs: string; size: number } | null = null
 
-  // ① 原生 NSFileManager 写 <sandbox>/Documents/Exports
-  //    这是「文件」App 里唯一看得见的位置，也是 plus.io 够不着的位置
-  const docs = await documentsDir()
-  if (docs) {
-    const dir = `${docs}/Exports`
-    if (!ensureDir(dir)) {
-      lastError = new Error('无法创建 Exports 目录')
-      logError('md', `创建 ${dir} 失败`)
-    } else {
-      const abs = `${dir}/${name}`
-      if (writeText(abs, text)) {
-        const size = fileSizeAt(abs)
-        if (size > 0 || text.length === 0) return { abs, size }
-        lastError = new Error(`写入后文件为 ${size} 字节`)
-        logError('md', lastError.message)
-      } else {
-        // 把 exists 一起记下来：能分清是「写失败」还是「写成功了但查不到」
-        lastError = new Error('原生写入失败')
-        logError('md', `${abs} 写入失败（exists=${fileExists(abs)}）`)
-      }
-    }
-  } else {
-    logError('md', '拿不到 Documents 路径，退回 plus.io')
-  }
-
-  if (!io) throw lastError || new Error('写入文件失败')
-
-  // ② 退回 plus.io（DCloud 自己的目录，用户看不见，但至少能交给选择器）
-  const targets: { fsConst: number; dir: string }[] = []
-  if (io.PUBLIC_DOCUMENTS !== undefined) {
-    targets.push({ fsConst: io.PUBLIC_DOCUMENTS, dir: 'Exports' })
-  }
-  targets.push({ fsConst: io.PRIVATE_DOC, dir: '' })
-
-  for (const target of targets) {
+  /*
+   * 分工写：plus.io 负责「写」，NSFileManager 负责「搬到 Documents」。
+   *
+   * 两份能力各自都被实测验证过：
+   * - plus.io 写 `_doc` 是可靠的（0.7.28 日志里成功写出 3036 字节）；
+   * - NSFileManager 的建目录 / 查文件 / 复制都通（0.7.30 自检：`Documents 目录`
+   *   通过、`建 Exports` 通过、`Documents 内容` 里已经能看到 Exports），
+   *   **唯独 `NSData writeToFile:atomically:` 写不进去**。
+   *
+   * 所以不去赌那个没验证过的一半，改成「先写到能写的地方，再搬过去」。
+   */
+  if (io) {
     try {
-      return await withTimeout(
-        writeOne(target.fsConst, target.dir, name, text),
-        8000,
-        '写入文件超时，请重试',
-      )
+      staging = await withTimeout(writeOne(io.PRIVATE_DOC, '', name, text), 8000, '写入文件超时，请重试')
+      log('md', `暂存成功：${staging.abs}（${staging.size} 字节）`)
     } catch (e) {
       lastError = e as Error
-      logError('md', `写入 ${target.dir || '根目录'} 失败：${lastError?.message || lastError}`)
+      logError('md', `写 _doc 失败：${lastError?.message || lastError}`)
+    }
+  }
+
+  const docs = await documentsDir()
+  if (staging && docs) {
+    const dir = `${docs}/Exports`
+    if (!ensureDir(dir)) {
+      logError('md', `建 ${dir} 失败`)
+    } else {
+      const dest = `${dir}/${name}`
+      const src = staging.abs.startsWith('/') ? staging.abs : toAbsolute(staging.abs)
+      if (copyFile(src, dest)) {
+        const size = fileSizeAt(dest)
+        if (size > 0 || text.length === 0) {
+          log('md', `已搬到 ${dest}（${size} 字节）`)
+          return { abs: dest, size }
+        }
+        logError('md', `${dest} 复制后为 ${size} 字节`)
+      } else {
+        logError('md', `复制 ${src} -> ${dest} 失败`)
+      }
+    }
+  } else if (!docs) {
+    logError('md', '拿不到 Documents 路径')
+  }
+
+  // 退回 DCloud 目录：用户看不见，但文件真的在，还能交给面板
+  if (staging) {
+    log('md', '留在 DCloud 目录（Documents 不可写）')
+    return staging
+  }
+
+  // 连 plus.io 都写不了，最后再试一次 DCloud 的 PUBLIC_DOCUMENTS
+  if (io) {
+    const targets: { fsConst: number; dir: string }[] = []
+    if (io.PUBLIC_DOCUMENTS !== undefined) {
+      targets.push({ fsConst: io.PUBLIC_DOCUMENTS, dir: 'Exports' })
+    }
+    for (const target of targets) {
+      try {
+        return await withTimeout(
+          writeOne(target.fsConst, target.dir, name, text),
+          8000,
+          '写入文件超时，请重试',
+        )
+      } catch (e) {
+        lastError = e as Error
+        logError('md', `写入 ${target.dir || '根目录'} 失败：${lastError?.message || lastError}`)
+      }
     }
   }
   throw lastError || new Error('写入文件失败')

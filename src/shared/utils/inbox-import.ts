@@ -173,6 +173,31 @@ export async function listInboxDocs(): Promise<InboxDoc[]> {
     log('inbox', '[原生] 拿不到 Documents 路径')
   }
 
+  /*
+   * ---- 手动通道：`Documents` 根目录 ----
+   *
+   * 0.7.30 自检给出了硬事实：`Inbox 目录 不存在` —— 系统从来没有把文件
+   * 复制到 `Documents/Inbox`，也就是 document interaction 在这个侧载包上
+   * 根本没生效。这条不能继续等了。
+   *
+   * 但 `UIFileSharingEnabled` 是生效的（`Documents 内容` 里已经能看到 Exports，
+   * 说明「文件」App → 我的 iPhone → 渡己 是可浏览的）。所以给用户一条确定
+   * 能走的路：把 .md 拖进「渡己」文件夹，回到 App 就会被扫到。
+   *
+   * 只扫根目录的直接子文件（`Exports` / `Inbox` 是目录且不带文本扩展名，
+   * 天然被 TEXT_EXT 滤掉），不递归 —— 导出产物不会被当成待导入。
+   */
+  if (base) {
+    const names = listDir(base)
+    log('inbox', `[原生] 扫描 ${base} 根：${names.length} 个条目`)
+    for (const name of names) {
+      if (!TEXT_EXT.test(name)) continue
+      const abs = `${base}/${name}`
+      if (!fileExists(abs)) continue
+      take(name, abs, readText(abs))
+    }
+  }
+
   // ---- 兜底：plus.io 的旧目录（历史残留，或 native 不可用时） ----
   for (const dir of await inboxDirs()) {
     const entries = await listEntries(dir)

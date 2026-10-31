@@ -129,8 +129,8 @@ function back(): void {
           <text :class="['v', o.total ? 'warn' : 'muted']">{{ o.total }} 个</text>
         </view>
         <text v-if="!env?.inbox.total" class="hint-line">
-          目录为空。从「文件」App 长按 .md → 共享 → 渡己，系统会把文件复制到
-          Documents/Inbox，这里就能看到
+          没有待导入文件。两条路：①「文件」App → 我的 iPhone → 渡己，把 .md 拖进去；
+          ② 从「文件」App 长按 .md → 共享 → 渡己
         </text>
       </view>
 

@@ -263,24 +263,87 @@ export function removeFileAt(absPath: string): boolean {
 }
 
 /**
- * 拿 `rootViewController` 的类名。
+ * 复制文件。目标已存在会先删掉。
  *
- * 「下载没反应」还有一种可能不是写入失败，而是系统面板 present 不出去：
- * `keyWindow` 在 iOS 13+ 多场景下可能为空。把类名打出来，
- * 一眼能分清是「没写文件」还是「弹不出面板」。
+ * 为什么需要它：`NSData writeToFile:atomically:` 在这个基座上写不进去
+ * （0.7.30 自检：`建 Exports` 通过、`写测试文件` 失败，说明 NSFileManager
+ * 本身是通的，断的只是「写」这一环）。而 `plus.io` 写 `_doc` 是可靠的
+ * ——0.7.28 的日志里它就成功写出了 3036 字节。
+ *
+ * 于是分工：**plus.io 负责「写」，NSFileManager 负责「搬到 Documents」**。
+ * 两条都是各自验证过的能力，不去赌没验证过的那一半。
  */
-export function presenterClass(): string {
+export function copyFile(srcAbs: string, destAbs: string): boolean {
   try {
     const i = ios()
-    if (!i?.importClass) return '(无 plus.ios)'
+    const fm = fileManager()
+    if (!fm || !srcAbs || !destAbs) return false
+    if (fileExists(destAbs)) removeFileAt(destAbs)
+    i.invoke(fm, 'copyItemAtPath:toPath:error:', srcAbs, destAbs, null)
+    if (fileExists(destAbs)) return true
+    // copyItem 也带 NSError**，万一它不认，再用 move 试一次
+    i.invoke(fm, 'moveItemAtPath:toPath:error:', srcAbs, destAbs, null)
+    return fileExists(destAbs)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 拿 `rootViewController` 的类名。
+ *
+ * 「下载没反应」的直接原因就在这里：0.7.30 自检显示 `rootViewController 失败
+ * （取不到 root）`——present 都进不去，面板自然不出现，而 present 的失败
+ * 又被 catch 吞了，用户看到的就是「什么都没发生」。
+ *
+ * 根因还是那条规律：`UIApplication.sharedApplication` 与 `defaultManager`
+ * 一样，**点语法有效、invoke 返回 null**。所以这里两种都试。
+ */
+function sharedApplication(): any {
+  try {
+    const i = ios()
+    if (!i?.importClass) return null
     const UIApplication = i.importClass('UIApplication')
-    const app = i.invoke(UIApplication, 'sharedApplication')
-    let win = i.invoke(app, 'keyWindow')
+    try {
+      const viaDot = UIApplication?.sharedApplication?.()
+      if (viaDot) return viaDot
+    } catch {
+      /* 试下一种 */
+    }
+    return i.invoke(UIApplication, 'sharedApplication')
+  } catch {
+    return null
+  }
+}
+
+/** 读 rootViewController：keyWindow 在 iOS 13+ 多场景下可能为空，退回 delegate.window */
+function rootVC(): any {
+  try {
+    const i = ios()
+    const app = sharedApplication()
+    if (!app) return null
+    let win = null
+    try {
+      win = app.keyWindow?.() || i.invoke(app, 'keyWindow')
+    } catch {
+      win = i.invoke(app, 'keyWindow')
+    }
     if (!win) {
       const delegate = i.invoke(app, 'delegate')
       win = i.invoke(delegate, 'window')
     }
-    const root = i.invoke(win, 'rootViewController')
+    if (!win) return null
+    return i.invoke(win, 'rootViewController')
+  } catch {
+    return null
+  }
+}
+
+export function presenterClass(): string {
+  try {
+    const i = ios()
+    if (!i?.importClass) return '(无 plus.ios)'
+    const root = rootVC()
     if (!root) return '(取不到 root)'
     const cls = i.invoke(root, 'class')
     const name = String(i.invoke(cls, 'description') || cls || '?')
